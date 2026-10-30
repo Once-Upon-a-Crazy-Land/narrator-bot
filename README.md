@@ -44,6 +44,27 @@ Other optional vars:
 - `GUILD_ID` (legacy fallback for integrations)
 - `CURRENCY_EMOJI`
 - `DISCORD_PREMIUM_SLOT_SKUS` (comma-separated Discord SKU IDs for premium subscriptions)
+## AI mention helper
+
+Set `GOOGLE_API_KEY` in `.env` (or your hosting provider's variables) to a
+[Google AI Studio key](https://aistudio.google.com/apikey), then restart the bot.
+`GEMINI_API_KEY` is accepted as a fallback. Set `GEMINI_MODEL` to override the
+default `gemini-3.8-flash` model. Google API usage may incur charges.
+
+In a server, ask `@Narrator How do I create a character?` using a direct mention.
+The helper uses registered command descriptions to answer questions about this bot
+and is instructed to decline unrelated requests. Topic filtering uses the model's
+classification and is not a security boundary. The helper cannot execute actions.
+Each question is independent: only the mentioned message text is sent to Google,
+with static command descriptions. Attachments, channel history, dynamic command
+choices, and stored profiles/economy data are excluded. Replies cannot ping users
+or roles. One question per user every 15 seconds and five concurrent requests are
+allowed. Without a key, mentions direct users to `/help`.
+
+The bot needs View Channel and Send Messages permissions (and Send Messages in
+Threads for threads). Keep Message Content Intent enabled for existing message
+features. API reference: [Google's documentation](https://ai.google.dev/api/generate-content).
+
 ## Install
 
 ```bash

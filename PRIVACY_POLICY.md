@@ -1,6 +1,6 @@
 # Privacy Policy (The Narrator)
 
-Last updated: 2026-06-16
+Last updated: 2026-10-30
 
 This Privacy Policy explains what data The Narrator Discord bot (the "Bot") processes, stores, and uses to provide its features.
 
@@ -26,6 +26,15 @@ The Bot may read message content when needed to provide roleplay and reply-based
 - allowing users to edit or delete their recent Bot-assisted roleplay posts
 
 The Bot is not designed to build advertising profiles or sell message data.
+
+When you directly mention the Bot with a question and its AI helper is enabled,
+that message's text (with the Bot mention removed) is sent to Google Gemini with
+static bot command descriptions to generate bot-related support answers or decline
+unrelated questions. Do not include secrets or sensitive information in questions.
+Attachments, surrounding channel history, dynamic command choices, and stored
+profiles/economy data are excluded. The Bot does not persist AI conversations.
+Google processes requests under its applicable terms and privacy policies.
+AI answers may be inaccurate.
 
 ## 3. Why Data Is Processed
 

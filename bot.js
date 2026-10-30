@@ -2,6 +2,7 @@ import fs from "fs";
 import http from "http";
 import path from "path";
 import dotenv from "dotenv";
+import { createAiHelper } from "./ai-helper.js";
 import sharp from "sharp";
 import Database from "better-sqlite3";
 import { Agent, setGlobalDispatcher } from "undici";
@@ -25,6 +26,11 @@ import {
 } from "discord.js";
 
 dotenv.config();
+
+const aiHelper = createAiHelper({
+  apiKey: process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY,
+  model: process.env.GEMINI_MODEL || "gemini-3.8-flash"
+});
 
 setGlobalDispatcher(
   new Agent({
@@ -5013,6 +5019,7 @@ async function registerCommands() {
     leaderboardCommand.toJSON(),
     pointsCommand.toJSON()
   ];
+  aiHelper.setCommands(commands);
   const rest = new REST({ version: "10" }).setToken(token);
 
   try {
@@ -12691,6 +12698,10 @@ client.on("entitlementDelete", (entitlement) => {
   } catch (error) {
     console.error("Failed to handle entitlementDelete:", error);
   }
+});
+
+client.on("messageCreate", (message) => {
+  aiHelper.handleMessage(message).catch(() => console.warn("AI helper could not handle mention."));
 });
 
 client.on("messageCreate", async (message) => {
