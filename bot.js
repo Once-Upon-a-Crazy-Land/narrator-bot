@@ -1,4 +1,3 @@
-import { groupApplicationCommands, resolveCommandName } from "./command-groups.js";
 import fs from "fs";
 import http from "http";
 import path from "path";
@@ -120,13 +119,13 @@ const CHARACTER_UPGRADE_DEFINITIONS = {
     id: "character_wallet_boost",
     name: "Character Wallet Boost",
     cost: 75,
-    description: "+1 extra character point per character message that awards points"
+    description: "+1 extra character point whenever /say awards points"
   },
   cooldown_boost: {
     id: "cooldown_boost",
     name: "Cooldown Boost",
     cost: 113,
-    description: "Reduces this character's message point cooldown by 50%"
+    description: "Reduces this character's /say point cooldown by 50%"
   }
 };
 
@@ -966,7 +965,7 @@ async function cleanupStaleWebhooks() {
     const oneMinuteAgo = Date.now() - 60000;
     let deletedCount = 0;
     
-    console.log(`[Startup] Checking ${sayChannelIds.length} roleplay channels for stale webhooks (older than 1 minute)`);
+    console.log(`[Startup] Checking ${sayChannelIds.length} /say channels for stale webhooks (older than 1 minute)`);
 
     for (const channelId of sayChannelIds) {
       try {
@@ -1761,7 +1760,7 @@ function buildRoleShopAdminPanel(guildId, statusLine = null) {
   const roleItems = getShopRoleItemsForGuild(guildId);
   const components = [
     { type: 10, content: "## Role Shop Manager" },
-    { type: 10, content: "Manage role items shown in `/eco shop` (User Wallet or Character Wallet)." },
+    { type: 10, content: "Manage role items shown in `/shop` (User Wallet or Character Wallet)." },
     { type: 14, divider: true, spacing: 1 }
   ];
 
@@ -1882,7 +1881,7 @@ function buildTitleAdminPanel(guildId, statusLine = null) {
   const guildTitles = getTitlesForGuild(guildId);
   const components = [
     { type: 10, content: "## Title Shop Manager" },
-    { type: 10, content: "Manage titles shown in `/eco shop`. Players buy titles with user points and can use them on any of their characters via `/character edit`." },
+    { type: 10, content: "Manage titles shown in `/shop`. Players buy titles with user points and can use them on any of their characters via `/character edit`." },
     { type: 14, divider: true, spacing: 1 }
   ];
 
@@ -2096,26 +2095,26 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     ]
   });
 
-  components.push({ type: 10, content: `### Roleplay Allowed Channels\nChoose which channels members can use for roleplay messages. Clear the list to allow all channels.\n${BULLET_EMOJI_RAW} Current: ${formatSayChannelPreview()}` });
+  components.push({ type: 10, content: `### /say Allowed Channels\nChoose which channels members can use for /say roleplay messages. Clear the list to allow all channels.\n${BULLET_EMOJI_RAW} Current: ${formatSayChannelPreview()}` });
   components.push({
     type: 1,
     components: [
       {
         type: 2,
         style: 2,
-        label: "Set Roleplay Channels",
+        label: "Set /say Channels",
         custom_id: "setup:panel:set-say-channels"
       },
       {
         type: 2,
         style: 2,
-        label: "Clear Roleplay Channels",
+        label: "Clear /say Channels",
         custom_id: "setup:panel:clear-say-channels"
       }
     ]
   });
 
-  components.push({ type: 10, content: `### Roleplay\nEnable roleplay commands for members, or disable them to pause member roleplay. Admins and bot managers can still use roleplay while roleplay is disabled.\n${BULLET_EMOJI_RAW} Status: ${roleplayEnabled ? "enabled for everyone" : "disabled for normal users (admins and bot managers can still use roleplay commands)"}` });
+  components.push({ type: 10, content: `### Roleplay\nEnable /say commands for members, or disable them to pause member roleplay. Admins and bot managers can still use /say while roleplay is disabled.\n${BULLET_EMOJI_RAW} Status: ${roleplayEnabled ? "enabled for everyone" : "disabled for normal users (admins and bot managers can still use /say commands)"}` });
   components.push({
     type: 1,
     components: [
@@ -3831,6 +3830,14 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
           ]
         },
         {
+          heading: "Roleplay",
+          lines: [
+            `${BULLET_EMOJI_RAW} \`/say\` — Speak as your selected character (supports image + reply)`,
+            `${BULLET_EMOJI_RAW} \`/say-edit\` — Edit a sent /say message by message ID`,
+            `${BULLET_EMOJI_RAW} \`/say-delete\` — Delete a sent /say message (within 15 minutes)`
+          ]
+        },
+        {
           heading: "Profile",
           lines: [
             `${BULLET_EMOJI_RAW} \`/user profile\` — View a user profile`,
@@ -3840,16 +3847,16 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
         {
           heading: "Economy",
           lines: [
-            `${BULLET_EMOJI_RAW} \`/eco wallet\` — View your wallets`,
-            `${BULLET_EMOJI_RAW} \`/item inventory\` — View your inventory with weight`,
-            `${BULLET_EMOJI_RAW} \`/item use\` — Use/consume an item from your inventory`,
-            `${BULLET_EMOJI_RAW} \`/item gift\` — Gift items to other users`,
+            `${BULLET_EMOJI_RAW} \`/wallet\` — View your wallets`,
+            `${BULLET_EMOJI_RAW} \`/inventory\` — View your inventory with weight`,
+            `${BULLET_EMOJI_RAW} \`/use-item\` — Use/consume an item from your inventory`,
+            `${BULLET_EMOJI_RAW} \`/gift-item\` — Gift items to other users`,
             `${BULLET_EMOJI_RAW} \`/trade propose\` — Propose a trade to another user`,
             `${BULLET_EMOJI_RAW} \`/trade list\` — View pending trade proposals`,
             `${BULLET_EMOJI_RAW} \`/trade accept\` — Accept a trade proposal`,
-            `${BULLET_EMOJI_RAW} \`/eco points\` — View your points`,
-            `${BULLET_EMOJI_RAW} \`/eco leaderboard\` — View rankings`,
-            `${BULLET_EMOJI_RAW} \`/eco shop\` — Buy slots, upgrades, and items`
+            `${BULLET_EMOJI_RAW} \`/points\` — View your points`,
+            `${BULLET_EMOJI_RAW} \`/leaderboard\` — View rankings`,
+            `${BULLET_EMOJI_RAW} \`/shop\` — Buy slots, upgrades, and items`
           ]
         },
         {
@@ -3864,7 +3871,7 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
     {
       title: "Help • Shop",
       lines: [
-        "Use `/eco shop` to buy items directly with buttons.",
+        "Use `/shop` to buy items directly with buttons.",
         "Slot purchases use your **User Wallet**.",
         "Upgrade purchases use your **selected character wallet**.",
         "",
@@ -3894,11 +3901,11 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
           heading: "Users & Setup",
           lines: [
             `${BULLET_EMOJI_RAW} \`/admin user edit\` — Manage user profile + characters`,
-            `${BULLET_EMOJI_RAW} \`/setup panel\` — Manage admin roles, logs channel, and roleplay channels`,
+            `${BULLET_EMOJI_RAW} \`/setup panel\` — Manage admin roles, logs channel, and /say channels`,
             `${BULLET_EMOJI_RAW} \`/setup add-points\` — Add user/character wallet points`,
             `${BULLET_EMOJI_RAW} \`/setup create-item\` — Create inventory items`,
             `${BULLET_EMOJI_RAW} \`/setup give-item\` — Give inventory items to users`,
-            `${BULLET_EMOJI_RAW} \`/setup set-item-shop\` — Add/remove inventory items from /eco shop`,
+            `${BULLET_EMOJI_RAW} \`/setup set-item-shop\` — Add/remove inventory items from /shop`,
             `${BULLET_EMOJI_RAW} \`/setup add-role-shop-item\` — Add role item to shop`,
             `${BULLET_EMOJI_RAW} \`/setup manage-titles\` — Manage purchasable titles`,
             `${BULLET_EMOJI_RAW} \`/bot-say\` — Send a message as the bot`
@@ -3995,14 +4002,24 @@ function buildTutorialView(guildId, userId, page = 0) {
     {
       title: "Tutorial • Step 3",
       lines: [
-        "**Use wallets and upgrades**",
-        `${BULLET_EMOJI_RAW} Run \`/eco wallet\` to check user + character balances.`,
-        `${BULLET_EMOJI_RAW} Run \`/eco shop\` to buy slot upgrades and character upgrades.`,
-        `${BULLET_EMOJI_RAW} Run \`/eco points\` and \`/eco leaderboard\` to track progress.`
+        "**Start roleplaying with /say**",
+        `${BULLET_EMOJI_RAW} Run \`/say message:<text>\` to send as your picked character.`,
+        `${BULLET_EMOJI_RAW} Optional: add \`image\`, \`reply_to\`, and \`ping\` (default: on).`,
+        `${BULLET_EMOJI_RAW} Need to fix a typo? Use \`/say-edit message_id:<id> message:<text>\`.`,
+        `${BULLET_EMOJI_RAW} You earn points from normal chat and from \`/say\`.`
       ]
     },
     {
       title: "Tutorial • Step 4",
+      lines: [
+        "**Use wallets and upgrades**",
+        `${BULLET_EMOJI_RAW} Run \`/wallet\` to check user + character balances.`,
+        `${BULLET_EMOJI_RAW} Run \`/shop\` to buy slot upgrades and character upgrades.`,
+        `${BULLET_EMOJI_RAW} Run \`/points\` and \`/leaderboard\` to track progress.`
+      ]
+    },
+    {
+      title: "Tutorial • Step 5",
       lines: [
         "**View and customize your character**",
         `${BULLET_EMOJI_RAW} Run \`/character profile\` to view your character card.`,
@@ -4012,13 +4029,13 @@ function buildTutorialView(guildId, userId, page = 0) {
       ]
     },
     {
-      title: "Tutorial • Step 5",
+      title: "Tutorial • Step 6",
       lines: [
         "**Inventory, items, and titles**",
-        `${BULLET_EMOJI_RAW} Run \`/item inventory\` to see your items and carry weight.`,
-        `${BULLET_EMOJI_RAW} Run \`/item use\` to consume an item, \`/item gift\` to give one away.`,
+        `${BULLET_EMOJI_RAW} Run \`/inventory\` to see your items and carry weight.`,
+        `${BULLET_EMOJI_RAW} Run \`/use-item\` to consume an item, \`/gift-item\` to give one away.`,
         `${BULLET_EMOJI_RAW} Run \`/trade propose\` to start a trade with another user.`,
-        `${BULLET_EMOJI_RAW} Titles can be purchased from \`/eco shop\` and selected via \`/character edit\`.`,
+        `${BULLET_EMOJI_RAW} Titles can be purchased from \`/shop\` and selected via \`/character edit\`.`,
         `${BULLET_EMOJI_RAW} Titles are per-user — once bought, you can use them on any character.`
       ]
     }
@@ -4504,6 +4521,62 @@ async function registerCommands() {
         )
     );
 
+  const sayCommand = new SlashCommandBuilder()
+    .setName("say")
+    .setDescription("Send a message as your selected character")
+    .addStringOption((option) =>
+      option
+        .setName("message")
+        .setDescription("Message content")
+        .setRequired(true)
+        .setMaxLength(2000)
+    )
+    .addAttachmentOption((option) =>
+      option
+        .setName("image")
+        .setDescription("Optional image to include")
+        .setRequired(false)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("reply_to")
+        .setDescription("Optional message ID to reply to")
+        .setRequired(false)
+    )
+    .addBooleanOption((option) =>
+      option
+        .setName("ping")
+        .setDescription("Ping the replied-to user or character owner")
+        .setRequired(false)
+    );
+
+  const sayEditCommand = new SlashCommandBuilder()
+    .setName("say-edit")
+    .setDescription("Edit one of your previously sent /say messages")
+    .addStringOption((option) =>
+      option
+        .setName("message_id")
+        .setDescription("Message ID to edit")
+        .setRequired(true)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("message")
+        .setDescription("Updated message content")
+        .setRequired(true)
+        .setMaxLength(2000)
+    );
+
+  const sayDeleteCommand = new SlashCommandBuilder()
+    .setName("say-delete")
+    .setDescription("Delete one of your recently sent /say messages (within 15 minutes)")
+    .addStringOption((option) =>
+      option
+        .setName("message_id")
+        .setDescription("Message ID to delete")
+        .setRequired(true)
+    );
+
   const setupCommand = new SlashCommandBuilder()
     .setName("setup")
     .setDescription("Configure bot settings (admin only)")
@@ -4646,7 +4719,7 @@ async function registerCommands() {
         .addBooleanOption((option) =>
           option
             .setName("add_to_shop")
-            .setDescription("Immediately make this item buyable in /eco shop")
+            .setDescription("Immediately make this item buyable in /shop")
             .setRequired(false)
         )
     )
@@ -4686,7 +4759,7 @@ async function registerCommands() {
     .addSubcommand((subcommand) =>
       subcommand
         .setName("set-item-shop")
-        .setDescription("Add or remove an inventory item from /eco shop")
+        .setDescription("Add or remove an inventory item from /shop")
         .addStringOption((option) =>
           option
             .setName("item")
@@ -4885,10 +4958,13 @@ async function registerCommands() {
         .setRequired(false)
     );
 
-  const commands = groupApplicationCommands([
+  const commands = [
     characterCommand.toJSON(),
     userCommand.toJSON(),
     adminCommand.toJSON(),
+    sayCommand.toJSON(),
+    sayEditCommand.toJSON(),
+    sayDeleteCommand.toJSON(),
     setupCommand.toJSON(),
     botSayCommand.toJSON(),
     helpCommand.toJSON(),
@@ -4903,7 +4979,7 @@ async function registerCommands() {
     lookupCommand.toJSON(),
     leaderboardCommand.toJSON(),
     pointsCommand.toJSON()
-  ]);
+  ];
   aiHelper.setCommands(commands);
   const rest = new REST({ version: "10" }).setToken(token);
 
@@ -5611,7 +5687,6 @@ client.on("guildDelete", () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
-  const commandName = resolveCommandName(interaction);
   const interactionLabel = interaction.isChatInputCommand?.()
     ? `/${interaction.commandName}`
     : interaction.customId || interaction.type;
@@ -5739,7 +5814,7 @@ client.on("interactionCreate", async (interaction) => {
 
     if (interaction.isAutocomplete()) {
       const subcommand = interaction.options.getSubcommand(false);
-      if (commandName === "character" && (subcommand === "pick" || subcommand === "assign" || subcommand === "remove" || subcommand === "edit" || subcommand === "change-id" || subcommand === "delete" || subcommand === "profile")) {
+      if (interaction.commandName === "character" && (subcommand === "pick" || subcommand === "assign" || subcommand === "remove" || subcommand === "edit" || subcommand === "change-id" || subcommand === "delete" || subcommand === "profile")) {
         const focusedValue = interaction.options.getFocused(true);
         if (focusedValue.name === "character") {
           let choices;
@@ -5773,7 +5848,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      if (commandName === "setup" && subcommand === "add-points") {
+      if (interaction.commandName === "setup" && subcommand === "add-points") {
         const focusedValue = interaction.options.getFocused(true);
         if (focusedValue.name === "character") {
           const choices = getCharacterAutocompleteChoices(interaction.guildId, focusedValue.value);
@@ -5781,7 +5856,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      if (commandName === "setup" && (subcommand === "give-item" || subcommand === "set-item-shop")) {
+      if (interaction.commandName === "setup" && (subcommand === "give-item" || subcommand === "set-item-shop")) {
         const focusedValue = interaction.options.getFocused(true);
         if (focusedValue.name === "item") {
           const choices = getInventoryItemAutocompleteChoices(interaction.guildId, focusedValue.value);
@@ -5796,7 +5871,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      if (commandName === "wallet") {
+      if (interaction.commandName === "wallet") {
         const focusedValue = interaction.options.getFocused(true);
         if (focusedValue.name === "character") {
           const choices = getCharacterAutocompleteChoices(interaction.guildId, focusedValue.value);
@@ -5804,7 +5879,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      if (commandName === "lookup") {
+      if (interaction.commandName === "lookup") {
         const focusedValue = interaction.options.getFocused(true);
         if (focusedValue.name === "character") {
           const choices = getCharacterAutocompleteChoices(interaction.guildId, focusedValue.value);
@@ -5812,7 +5887,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      if (commandName === "use-item" || commandName === "gift-item") {
+      if (interaction.commandName === "use-item" || interaction.commandName === "gift-item") {
         const focusedValue = interaction.options.getFocused(true);
         if (focusedValue.name === "item") {
           const choices = getInventoryItemAutocompleteChoices(interaction.guildId, focusedValue.value);
@@ -5821,7 +5896,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      if (commandName === "trade") {
+      if (interaction.commandName === "trade") {
         const subcommand = interaction.options.getSubcommand(false);
         const focusedValue = interaction.options.getFocused(true);
         if (subcommand === "propose" && (focusedValue.name === "offer" || focusedValue.name === "request")) {
@@ -5835,7 +5910,7 @@ client.on("interactionCreate", async (interaction) => {
 
     if (interaction.isChatInputCommand()) {
 
-      if (commandName === "admin") {
+      if (interaction.commandName === "admin") {
         if (!interaction.inGuild()) {
           await replyComponentsV2(
             interaction,
@@ -5881,7 +5956,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "character") {
+      if (interaction.commandName === "character") {
         const subcommand = interaction.options.getSubcommand();
 
         if (subcommand === "assign") {
@@ -5931,7 +6006,7 @@ client.on("interactionCreate", async (interaction) => {
               [
                 `**${user.tag}** has no free character slots.`,
                 `Used slots: **${usedSlots}/${slotLimit}**`,
-                "They can buy more from `/eco shop`."
+                "They can buy more from `/shop`."
               ],
               [],
               { ephemeral: true }
@@ -6003,7 +6078,7 @@ client.on("interactionCreate", async (interaction) => {
             "Character Selected",
             [
               `Now using **${character.name}** (\`${character.id}\`).`,
-              "Use `/character profile` to view this character."
+              "Use `/say` to roleplay as this character."
             ],
             [],
             { ephemeral: true }
@@ -6063,7 +6138,7 @@ client.on("interactionCreate", async (interaction) => {
           await replyComponentsV2(
             interaction,
             "Webhooks Cleared",
-            [`Deleted **${deletedCount}** webhooks and reloaded character data. New webhooks will be created when character messaging is used again.`],
+            [`Deleted **${deletedCount}** webhooks and reloaded character data. New webhooks will be created on next \`/say\`.`],
             [],
             { ephemeral: true }
           );
@@ -6231,7 +6306,7 @@ client.on("interactionCreate", async (interaction) => {
               "No Free Character Slots",
               [
                 `You are using **${usedSlots}/${slotLimit}** slots.`,
-                "Buy another slot from `/eco shop` before creating and assigning a new character."
+                "Buy another slot from `/shop` before creating and assigning a new character."
               ],
               [],
               { ephemeral: true }
@@ -6842,7 +6917,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "lookup") {
+      if (interaction.commandName === "lookup") {
         if (!interaction.inGuild()) {
           await replyComponentsV2(
             interaction,
@@ -6886,7 +6961,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "user") {
+      if (interaction.commandName === "user") {
         const subcommand = interaction.options.getSubcommand();
 
         if (subcommand === "profile") {
@@ -6942,7 +7017,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      if (commandName === "wallet") {
+      if (interaction.commandName === "wallet") {
         if (!interaction.inGuild()) {
           await replyComponentsV2(
             interaction,
@@ -6988,7 +7063,7 @@ client.on("interactionCreate", async (interaction) => {
 
         if (!characterId) {
           characterSectionLines.push("**Character Wallet:** None selected");
-          characterSectionLines.push("Use `/character pick` or pass `character` in `/eco wallet`.");
+          characterSectionLines.push("Use `/character pick` or pass `character` in `/wallet`.");
         } else {
           const character = getCharacterById(characterId, interaction.guildId);
           if (!character) {
@@ -7028,7 +7103,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "inventory") {
+      if (interaction.commandName === "inventory") {
         if (!interaction.inGuild()) {
           await replyComponentsV2(
             interaction,
@@ -7072,7 +7147,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "use-item") {
+      if (interaction.commandName === "use-item") {
         if (!interaction.inGuild()) {
           await replyComponentsV2(
             interaction,
@@ -7147,7 +7222,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "gift-item") {
+      if (interaction.commandName === "gift-item") {
         if (!interaction.inGuild()) {
           await replyComponentsV2(
             interaction,
@@ -7225,7 +7300,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "trade") {
+      if (interaction.commandName === "trade") {
         if (!interaction.inGuild()) {
           await replyComponentsV2(
             interaction,
@@ -7410,7 +7485,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      if (commandName === "say") {
+      if (interaction.commandName === "say") {
         // Defer reply immediately since webhook operations can take time
         await interaction.deferReply({ ephemeral: true, flags: 32768 });
 
@@ -7462,10 +7537,10 @@ client.on("interactionCreate", async (interaction) => {
             interaction,
             null,
             [
-              `${UNSUCCESSFUL_EMOJI_RAW} /say send is not allowed in this channel.`,
+              `${UNSUCCESSFUL_EMOJI_RAW} /say is not allowed in this channel.`,
               allowedChannelIds.length > 0
                 ? `Allowed channels: ${allowedSummary}${allowedChannelIds.length > 8 ? ", ..." : ""}`
-                : "No /say send channels are configured for this server."
+                : "No /say channels are configured for this server."
             ],
             []
           );
@@ -7533,7 +7608,7 @@ client.on("interactionCreate", async (interaction) => {
         
         // Debug log to track what message ID is being used
         if (replyToMessageId) {
-          console.log(`[/say send debug] Guild: ${interaction.guildId}, User: ${interaction.user.id}, ReplyToMessageId: ${replyToMessageId}`);
+          console.log(`[/say debug] Guild: ${interaction.guildId}, User: ${interaction.user.id}, ReplyToMessageId: ${replyToMessageId}`);
         }
 
         if (replyToMessageId && !/^\d{17,20}$/.test(replyToMessageId)) {
@@ -7579,7 +7654,7 @@ client.on("interactionCreate", async (interaction) => {
             return;
           }
           
-          console.log(`[/say send debug] Fetched message ID: ${referencedMessage.id}, Author: ${referencedMessage.author?.id}`);
+          console.log(`[/say debug] Fetched message ID: ${referencedMessage.id}, Author: ${referencedMessage.author?.id}`);
 
           if (shouldPingReplyTarget) {
             const trackedReplyLogEntry = [...messageLogs]
@@ -7592,10 +7667,10 @@ client.on("interactionCreate", async (interaction) => {
               );
 
             replyPingTargetId = String(trackedReplyLogEntry?.userId || referencedMessage.author?.id || "").trim();
-            console.log(`[/say send debug] Tracked entry found: ${!!trackedReplyLogEntry}, Using ping target: ${replyPingTargetId}`);
+            console.log(`[/say debug] Tracked entry found: ${!!trackedReplyLogEntry}, Using ping target: ${replyPingTargetId}`);
           }
           
-          // Also find if the message being replied to was itself a /say send reply, to get the original target
+          // Also find if the message being replied to was itself a /say reply, to get the original target
           const replyTargetLogEntry = [...messageLogs]
             .reverse()
             .find(
@@ -7634,7 +7709,7 @@ client.on("interactionCreate", async (interaction) => {
               null,
               [
                 `${UNSUCCESSFUL_EMOJI_RAW} This channel's webhook slots are currently full.`,
-                "Please wait for slots to free up and try `/say send` again.",
+                "Please wait for slots to free up and try `/say` again.",
                 `Webhooks in use right now: **${safeTotal}/${CHANNEL_WEBHOOK_LIMIT}** (Bot-owned: **${safeBotOwned}**)`
               ],
               []
@@ -7673,7 +7748,7 @@ client.on("interactionCreate", async (interaction) => {
             let previewSourceMessage = referencedMessage;
             let sourceText = stripSubtextPrefix(previewSourceMessage.content || previewSourceMessage.cleanContent || "");
 
-            // Only follow embedded links if NOT replying to a /say send message
+            // Only follow embedded links if NOT replying to a /say message
             if (/^↪\s/.test(sourceText) && !referencedMessage._replyTargetLogEntry) {
               const embeddedLinkMatch = sourceText.match(/https?:\/\/discord\.com\/channels\/(\d{17,20})\/(\d{17,20})\/(\d{17,20})/i);
               if (embeddedLinkMatch) {
@@ -7704,7 +7779,7 @@ client.on("interactionCreate", async (interaction) => {
 
             let replyAuthor = previewSourceMessage.author?.username || "unknown";
             
-            // If replying to a /say send message that was itself a reply, extract author from stored header
+            // If replying to a /say message that was itself a reply, extract author from stored header
             if (referencedMessage._replyTargetLogEntry?.replyHeader) {
               const headerMatch = referencedMessage._replyTargetLogEntry.replyHeader.match(
                 /\[Replying to ([^\]:]+)/
@@ -7804,7 +7879,7 @@ client.on("interactionCreate", async (interaction) => {
           await sendUserLevelUpLog(interaction.client, interaction.guildId, interaction.user.id, userLevelUpInfo, {
             channelId: sentMessage?.channelId || interaction.channelId,
             messageId: sentMessage?.id || null,
-            source: "/say send user points"
+            source: "/say user points"
           });
 
           const characterPointsCooldownMs = getCharacterPointsCooldownMs(interaction.guildId, selectedCharacterId);
@@ -7816,11 +7891,11 @@ client.on("interactionCreate", async (interaction) => {
               actorId: interaction.user.id,
               channelId: sentMessage?.channelId || interaction.channelId,
               messageId: sentMessage?.id || null,
-              source: "/say send character points"
+              source: "/say character points"
             });
           }
 
-          // Log the message and webhook context so /say edit can target it later.
+          // Log the message and webhook context so /say-edit can target it later.
           logMessage(interaction.user.id, character.name, message, interaction.channelId, interaction.guildId, {
             messageId: sentMessage?.id || null,
             webhookId: webhookInfo?.id || null,
@@ -7865,7 +7940,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "say-edit") {
+      if (interaction.commandName === "say-edit") {
         await interaction.deferReply({ ephemeral: true, flags: 32768 });
 
         if (!interaction.inGuild()) {
@@ -7912,8 +7987,8 @@ client.on("interactionCreate", async (interaction) => {
             interaction,
             null,
             [
-              `${UNSUCCESSFUL_EMOJI_RAW} I couldn't find that message in tracked /say send logs.`,
-              "Only /say send messages sent after this update can be edited."
+              `${UNSUCCESSFUL_EMOJI_RAW} I couldn't find that message in tracked /say logs.`,
+              "Only /say messages sent after this update can be edited."
             ],
             []
           );
@@ -7943,7 +8018,7 @@ client.on("interactionCreate", async (interaction) => {
             null,
             [
               `${UNSUCCESSFUL_EMOJI_RAW} This message does not have editable webhook data in logs.`,
-              "Try sending a new /say send message and editing that one."
+              "Try sending a new /say message and editing that one."
             ],
             []
           );
@@ -8012,7 +8087,7 @@ client.on("interactionCreate", async (interaction) => {
           logMessage(
             interaction.user.id,
             "Message Edit",
-            `Edited /say send message ${messageId}`,
+            `Edited /say message ${messageId}`,
             interaction.channelId,
             interaction.guildId,
             { source: "say-edit", targetMessageId: messageId }
@@ -8045,7 +8120,7 @@ client.on("interactionCreate", async (interaction) => {
               [
                 `${UNSUCCESSFUL_EMOJI_RAW} Webhook no longer exists, so that message can't be edited.`,
                 "You only have 60 seconds to edit your message for corrections after sending it.",
-                "Send a new /say send message first if you need to post a correction."
+                "Send a new /say message first if you need to post a correction."
               ],
               []
             );
@@ -8063,7 +8138,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "say-delete") {
+      if (interaction.commandName === "say-delete") {
         await interaction.deferReply({ ephemeral: true, flags: 32768 });
 
         if (!interaction.inGuild()) {
@@ -8113,8 +8188,8 @@ client.on("interactionCreate", async (interaction) => {
             interaction,
             null,
             [
-              `${UNSUCCESSFUL_EMOJI_RAW} I couldn't find that message in tracked /say send logs.`,
-              "Only /say send messages sent after this update can be deleted."
+              `${UNSUCCESSFUL_EMOJI_RAW} I couldn't find that message in tracked /say logs.`,
+              "Only /say messages sent after this update can be deleted."
             ],
             []
           );
@@ -8133,7 +8208,7 @@ client.on("interactionCreate", async (interaction) => {
               null,
               [
                 `${UNSUCCESSFUL_EMOJI_RAW} I couldn't verify the current owner of that character.`,
-                "Only character owners can delete /say send messages."
+                "Only character owners can delete /say messages."
               ],
               []
             );
@@ -8144,7 +8219,7 @@ client.on("interactionCreate", async (interaction) => {
             await editComponentsV2(
               interaction,
               null,
-              [`${UNSUCCESSFUL_EMOJI_RAW} You can only delete /say send messages for characters you currently own.`],
+              [`${UNSUCCESSFUL_EMOJI_RAW} You can only delete /say messages for characters you currently own.`],
               []
             );
             return;
@@ -8201,7 +8276,7 @@ client.on("interactionCreate", async (interaction) => {
           logMessage(
             interaction.user.id,
             "Message Delete",
-            `Deleted /say send message ${messageId}`,
+            `Deleted /say message ${messageId}`,
             interaction.channelId,
             interaction.guildId,
             { source: "say-delete", targetMessageId: messageId }
@@ -8248,7 +8323,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "leaderboard") {
+      if (interaction.commandName === "leaderboard") {
         if (!interaction.inGuild()) {
           await replyComponentsV2(
             interaction,
@@ -8273,7 +8348,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "points") {
+      if (interaction.commandName === "points") {
         if (!interaction.inGuild()) {
           await replyComponentsV2(
             interaction,
@@ -8302,10 +8377,11 @@ client.on("interactionCreate", async (interaction) => {
           lines.push(`**Character Points:** ${formatPointsWithEmoji(selectedCharacterPoints)}`);
         } else {
           lines.push("**Selected Character:** None");
+          lines.push("Use `/character pick` to track character points on `/say`.");
         }
 
         lines.push("");
-        lines.push(`Earn **${MESSAGE_POINTS_MIN}-${MESSAGE_POINTS_MAX} ${POINTS_EMOJI_RAW}** per normal message.`);
+        lines.push(`Earn **${MESSAGE_POINTS_MIN}-${MESSAGE_POINTS_MAX} ${POINTS_EMOJI_RAW}** per normal message and **${POINTS_PER_CHARACTER_MESSAGE} ${POINTS_EMOJI_RAW}** per \`/say\`.`);
 
         await replyComponentsV2(
           interaction,
@@ -8317,7 +8393,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "setup") {
+      if (interaction.commandName === "setup") {
         const subcommand = interaction.options.getSubcommand();
         const wantsTemporaryItem = subcommand === "create-item"
           && interaction.options.getBoolean("temporary", false) === true;
@@ -8681,7 +8757,7 @@ client.on("interactionCreate", async (interaction) => {
             interaction,
             "Shop Listing Updated",
             [
-              `${SUCCESSFUL_EMOJI_RAW} **${item.name}** is now ${inShop ? "listed in" : "removed from"} /eco shop.`
+              `${SUCCESSFUL_EMOJI_RAW} **${item.name}** is now ${inShop ? "listed in" : "removed from"} /shop.`
             ],
             [],
             { ephemeral: true }
@@ -8690,7 +8766,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      if (commandName === "bot-say") {
+      if (interaction.commandName === "bot-say") {
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
           await replyComponentsV2(
             interaction,
@@ -8742,7 +8818,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "shop") {
+      if (interaction.commandName === "shop") {
         if (!interaction.inGuild()) {
           await replyComponentsV2(
             interaction,
@@ -8763,7 +8839,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "premium") {
+      if (interaction.commandName === "premium") {
         const firstSkuId = DISCORD_PREMIUM_SLOT_SKU_IDS.size > 0
           ? Array.from(DISCORD_PREMIUM_SLOT_SKU_IDS)[0]
           : null;
@@ -8774,7 +8850,7 @@ client.on("interactionCreate", async (interaction) => {
           `• Subscribe to unlock **+${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} extra character slots**, custom card backgrounds, and more.`,
           `• Slots are active for as long as your subscription is running.`,
           `• If you cancel, the subscription slots disappear but your characters are never deleted.`,
-          `• After subscribing, run \`/eco wallet\` to confirm your slots are active.`
+          `• After subscribing, run \`/wallet\` to confirm your slots are active.`
         ].join("\n");
 
         if (firstSkuId) {
@@ -8803,7 +8879,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "help") {
+      if (interaction.commandName === "help") {
         const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
         const helpView = buildHelpView(interaction.guildId, interaction.user.id, isAdmin, 0);
         await interaction.reply({
@@ -8814,7 +8890,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (commandName === "tutorial") {
+      if (interaction.commandName === "tutorial") {
         const tutorialView = buildTutorialView(interaction.guildId, interaction.user.id, 0);
         await interaction.reply({
           flags: 32768,
@@ -9520,7 +9596,7 @@ client.on("interactionCreate", async (interaction) => {
             flags: 32768,
             components: buildSetupAdminPanel(
               interaction.guildId,
-              `<:success:1479234774861221898> Cleared roleplay channel restrictions. roleplay is now allowed in all channels.`
+              `<:success:1479234774861221898> Cleared /say channel restrictions. /say is now allowed in all channels.`
             )
           });
           return;
@@ -9531,7 +9607,7 @@ client.on("interactionCreate", async (interaction) => {
             flags: 32768,
             components: buildSetupAdminPanel(
               interaction.guildId,
-              `${UNSUCCESSFUL_EMOJI_RAW} roleplay channel clear cancelled.`
+              `${UNSUCCESSFUL_EMOJI_RAW} /say channel clear cancelled.`
             )
           });
           return;
@@ -9543,7 +9619,7 @@ client.on("interactionCreate", async (interaction) => {
             flags: 32768,
             components: buildSetupAdminPanel(
               interaction.guildId,
-              `${SUCCESSFUL_EMOJI_RAW} Roleplay enabled. Everyone can use roleplay commands.`
+              `${SUCCESSFUL_EMOJI_RAW} Roleplay enabled. Everyone can use /say commands.`
             )
           });
           return;
@@ -9555,7 +9631,7 @@ client.on("interactionCreate", async (interaction) => {
             flags: 32768,
             components: buildSetupAdminPanel(
               interaction.guildId,
-              `${SUCCESSFUL_EMOJI_RAW} Roleplay disabled for normal users. Only admins and bot managers can use roleplay commands.`
+              `${SUCCESSFUL_EMOJI_RAW} Roleplay disabled for normal users. Only admins and bot managers can use /say commands.`
             )
           });
           return;
@@ -9788,7 +9864,7 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "set-say-channels") {
           await interaction.reply({
-            content: "Choose the channels where roleplay is allowed. If no channels are configured, roleplay is allowed everywhere.",
+            content: "Choose the channels where /say is allowed. If no channels are configured, /say is allowed everywhere.",
             ephemeral: true,
             components: [
               {
@@ -9797,7 +9873,7 @@ client.on("interactionCreate", async (interaction) => {
                   {
                     type: 8,
                     custom_id: "setup:panel:set-say-channels:select",
-                    placeholder: "Select channels where roleplay is allowed",
+                    placeholder: "Select channels where /say is allowed",
                     min_values: 1,
                     max_values: 25,
                     channel_types: [0, 5, 15]
@@ -9912,10 +9988,10 @@ client.on("interactionCreate", async (interaction) => {
           await interaction.update({
             flags: 32768,
             components: buildComponentsBox(
-              "Clear Roleplay Channels",
+              "Clear /say Channels",
               [
-                "Are you sure you want to clear all roleplay channel restrictions?",
-                "After this, roleplay will be allowed in all channels for this server."
+                "Are you sure you want to clear all /say channel restrictions?",
+                "After this, /say will be allowed in all channels for this server."
               ],
               [
                 {
@@ -10084,7 +10160,7 @@ client.on("interactionCreate", async (interaction) => {
           const inventoryItem = getInventoryItemById(interaction.guildId, inventoryItemId);
 
           if (!inventoryItem || inventoryItem.inShop !== true) {
-            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} This inventory item is not currently listed in /eco shop.`;
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} This inventory item is not currently listed in /shop.`;
           } else {
             const walletType = normalizeRoleItemWallet(inventoryItem.wallet);
 
@@ -10253,15 +10329,15 @@ client.on("interactionCreate", async (interaction) => {
           { name: "/character create-and-assign", desc: "Create and auto-assign a character" },
           { name: "/user profile [user]", desc: "View user profile" },
           { name: "/user edit", desc: "Edit your profile" },
-          { name: "/eco wallet", desc: "View combined user + character wallet" },
-          { name: "/item inventory", desc: "View your inventory items and holders" },
-          { name: "/item use [item]", desc: "Use an inventory item" },
-          { name: "/item gift [item] [recipient] [quantity]", desc: "Gift inventory items to another user" },
-          { name: "/eco shop", desc: "Buy upgrades and other shop items" },
+          { name: "/wallet", desc: "View combined user + character wallet" },
+          { name: "/inventory", desc: "View your inventory items and holders" },
+          { name: "/shop", desc: "Buy upgrades and other shop items" },
           { name: "/premium", desc: "Get premium purchase link + steps" },
           { name: "/tutorial", desc: "Step-by-step guide for using the bot" },
-          { name: "/eco points", desc: "View your user/character points" },
-          { name: "/eco leaderboard [type] [limit]", desc: "View user or character rankings" }
+          { name: "/say [message] [image] [reply_to] [ping]", desc: "Send message as your character with optional image/reply ping" },
+          { name: "/say-edit [message_id] [message]", desc: "Edit your tracked /say message by message ID" },
+          { name: "/points", desc: "View your user/character points" },
+          { name: "/leaderboard [type] [limit]", desc: "View user or character rankings" }
         ];
 
         const adminCommands = [
@@ -10270,11 +10346,11 @@ client.on("interactionCreate", async (interaction) => {
           { name: "/character delete [character]", desc: "Delete character" },
           { name: "/character change-id [character] [new-id]", desc: "Change character ID" },
           { name: "/admin user edit [user]", desc: "Manage user profile + character actions" },
-          { name: "/setup panel", desc: "Manage admin roles, logs channel, and roleplay channels" },
+          { name: "/setup panel", desc: "Manage admin roles, logs channel, and /say channels" },
           { name: "/setup add-points ...", desc: "Add user/character wallet points" },
           { name: "/setup create-item ...", desc: "Create permanent or temporary inventory items" },
           { name: "/setup give-item ...", desc: "Give inventory items to a user" },
-          { name: "/setup set-item-shop ...", desc: "Add/remove inventory items from /eco shop" },
+          { name: "/setup set-item-shop ...", desc: "Add/remove inventory items from /shop" },
           { name: "/setup add-role-shop-item", desc: "Open role shop item manager" },
           { name: "/setup manage-titles", desc: "Open title shop manager" },
           { name: "/character clear-webhooks", desc: "Clear webhook cache" },
@@ -10736,7 +10812,7 @@ client.on("interactionCreate", async (interaction) => {
         flags: 32768,
         components: buildSetupAdminPanel(
           interaction.guildId,
-          `<:success:1479234774861221898> roleplay is now allowed in ${summary}${suffix}.`
+          `<:success:1479234774861221898> /say is now allowed in ${summary}${suffix}.`
         ),
         ephemeral: true
       });
@@ -12297,7 +12373,7 @@ client.on("interactionCreate", async (interaction) => {
           await replyComponentsV2(
             interaction,
             "Select Title",
-            ["You don't own any titles yet. Buy titles from `/eco shop`."],
+            ["You don't own any titles yet. Buy titles from `/shop`."],
             [],
             { ephemeral: true }
           );
@@ -12323,7 +12399,7 @@ client.on("interactionCreate", async (interaction) => {
           await replyComponentsV2(
             interaction,
             "Select Title",
-            ["Your owned titles no longer exist in this server. Buy titles from `/eco shop`."],
+            ["Your owned titles no longer exist in this server. Buy titles from `/shop`."],
             [],
             { ephemeral: true }
           );
