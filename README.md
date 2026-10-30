@@ -51,7 +51,8 @@ Set `GOOGLE_API_KEY` in `.env` (or your hosting provider's variables) to a
 `GEMINI_API_KEY` is accepted as a fallback. Set `GEMINI_MODEL` to override the
 default `gemini-3.8-flash` model. Google API usage may incur charges.
 
-In a server, ask `@Narrator How do I create a character?` using a direct mention.
+In a server, ask `@Narrator How do I create a character?` using a direct bot mention
+or a mention of the bot's own managed role.
 The helper uses registered command descriptions to answer questions about this bot
 and is instructed to decline unrelated requests. Topic filtering uses the model's
 classification and is not a security boundary. The helper cannot execute actions.

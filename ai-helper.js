@@ -14,6 +14,7 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
   const cooldowns = new Map();
   const pending = new Set();
   let commandReference = "Use /help or /tutorial for instructions.";
+  let loggedFirstMessage = false;
 
   return {
     setCommands(commands) {
@@ -22,15 +23,27 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
     async handleMessage(message) {
       const botId = message.client?.user?.id;
       if (!message.guild || message.author?.bot || message.webhookId || !botId) return;
+      if (!loggedFirstMessage) {
+        logger.info?.(`[AI helper] Server message delivery confirmed; content available: ${Boolean(message.content)}.`);
+        loggedFirstMessage = true;
+      }
+      // Discord renders bot user and bot role mentions similarly, but their IDs differ.
+      // Only the managed role belonging to this bot is accepted, never arbitrary roles.
+      const botRole = message.guild.roles?.cache?.find((role) => role.tags?.botId === botId);
       const mention = new RegExp(`<@!?${botId}>`, "g");
-      if (!mention.test(message.content || "")) return;
-      logger.info?.("[AI helper] Received direct mention.");
+      const roleMention = botRole ? new RegExp(`<@&${botRole.id}>`, "g") : null;
+      const content = message.content || "";
+      const directMentioned = mention.test(content);
+      const roleMentioned = roleMention?.test(content) || false;
+      if (!directMentioned && !roleMentioned) return;
+      logger.info?.(`[AI helper] Received ${directMentioned ? "direct" : "bot role"} mention.`);
       const reply = (content) => message.reply({ content, allowedMentions: { parse: [], repliedUser: false } });
       if (!apiKey?.trim()) {
         await reply("My AI helper isn't configured yet. Please use /help or ask the bot owner to enable it.");
         return;
       }
-      const question = message.content.replace(mention, "").trim();
+      const withoutUserMention = content.replace(mention, "");
+      const question = (roleMention ? withoutUserMention.replace(roleMention, "") : withoutUserMention).trim();
       if (!question) {
         await reply("Mention me with a question about The Narrator, for example: How do I create a character? Questions are sent to Google Gemini for an AI answer.");
         return;

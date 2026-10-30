@@ -5664,7 +5664,7 @@ function updateServerCountPresence() {
 
 client.once("clientReady", () => {
   console.log(`Logged in as ${client.user.tag}`);
-  console.log(`[AI helper] Mention handler loaded; Google key configured: ${Boolean((process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || "").trim())}.`);
+  console.log(`[AI helper v2] User and bot-role mention handler loaded; Google key configured: ${Boolean((process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || "").trim())}.`);
   updateServerCountPresence();
 
   const connectedGuilds = Array.from(client.guilds.cache.values())

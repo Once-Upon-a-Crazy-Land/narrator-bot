@@ -40,6 +40,35 @@ test("only explicit mentions from humans in servers trigger Google", async () =>
   assert.deepEqual(msg.replies[0].allowedMentions, { parse: [], repliedUser: false });
 });
 
+test("bot's managed role mentions trigger support; unrelated and same-named roles do not", async () => {
+  const { helper, requests } = harness();
+  const roles = [
+    { id: "456", tags: { botId: "123" } },
+    { id: "789", name: "The Narrator", tags: { botId: "999" } },
+    { id: "987", name: "The Narrator" }
+  ];
+  const guild = { id: "guild", roles: { cache: { find: (fn) => roles.find(fn) } } };
+  await helper.handleMessage(message({ guild, content: "<@&789> Question" }));
+  await helper.handleMessage(message({ guild, content: "<@&987> Question" }));
+  assert.equal(requests.length, 0);
+  await helper.handleMessage(message({ guild, content: "<@&456> How does /say work?" }));
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].body.contents[0].parts[0].text, "How does /say work?");
+  await helper.handleMessage(message({ guild, author: { id: "other-user" }, content: "<@&456> How does /say work? <@123>" }));
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].body.contents[0].parts[0].text, "How does /say work?");
+});
+
+test("delivery diagnostics do not log message text", async () => {
+  const logs = [];
+  const helper = createAiHelper({ logger: { info: (line) => logs.push(line) } });
+  await helper.handleMessage(message({ content: "private unrelated message" }));
+  await helper.handleMessage(message({ content: "another private message" }));
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /delivery confirmed/);
+  assert.doesNotMatch(logs[0], /private/);
+});
+
 test("context excludes server-specific command choices and message metadata", async () => {
   const { helper, requests } = harness();
   helper.setCommands([{ name: "character", description: "Manage characters", options: [
