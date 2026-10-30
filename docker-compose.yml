@@ -9,7 +9,7 @@ services:
       CLIENT_ID: ${CLIENT_ID}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}
       COMMAND_GUILD_ID: ${COMMAND_GUILD_ID:-}
       GUILD_ID: ${GUILD_ID:-}
       CURRENCY_EMOJI: ${CURRENCY_EMOJI:-🍬}

@@ -10,7 +10,7 @@ function describeCommand(command) {
   };
 }
 
-export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl = fetch, now = Date.now, logger = console,
+export function createAiHelper({ apiKey, model = "gemini-3.1-flash-lite", fetchImpl = fetch, now = Date.now, logger = console,
   waitImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 } = {}) {
   const cooldowns = new Map();

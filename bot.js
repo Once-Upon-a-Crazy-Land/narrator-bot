@@ -29,7 +29,7 @@ dotenv.config();
 
 const aiHelper = createAiHelper({
   apiKey: process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY,
-  model: process.env.GEMINI_MODEL || "gemini-3.8-flash"
+  model: process.env.GEMINI_MODEL || "gemini-3.1-flash-lite"
 });
 
 setGlobalDispatcher(

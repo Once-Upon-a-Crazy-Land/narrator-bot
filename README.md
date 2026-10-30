@@ -49,7 +49,7 @@ Other optional vars:
 Set `GOOGLE_API_KEY` in `.env` (or your hosting provider's variables) to a
 [Google AI Studio key](https://aistudio.google.com/apikey), then restart the bot.
 `GEMINI_API_KEY` is accepted as a fallback. Set `GEMINI_MODEL` to override the
-default `gemini-3.8-flash` model. Google API usage may incur charges.
+default `gemini-3.1-flash-lite` model. Google API usage may incur charges.
 
 In a server, ask `@Narrator How do I create a character?` using a direct bot mention
 or a mention of the bot's own managed role.
