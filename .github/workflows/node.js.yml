@@ -13,12 +13,17 @@ permissions:
 jobs:
   checks:
     name: Syntax and tests (Node.js 20)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          # The policies gitlink has no .gitmodules entry and is not needed for tests.
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/narrator-bot-policies/
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
