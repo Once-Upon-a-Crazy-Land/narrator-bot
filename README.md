@@ -61,6 +61,8 @@ with static command descriptions. Attachments, channel history, dynamic command
 choices, and stored profiles/economy data are excluded. Replies cannot ping users
 or roles. One question per user every 15 seconds and five concurrent requests are
 allowed. Without a key, mentions direct users to `/help`.
+Temporary Google server errors are retried twice with increasing delays, within
+the same 25-second request timeout. Invalid keys and quota errors are not retried.
 
 The bot needs View Channel and Send Messages permissions (and Send Messages in
 Threads for threads). Keep Message Content Intent enabled for existing message

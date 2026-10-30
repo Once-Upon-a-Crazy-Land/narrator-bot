@@ -10,11 +10,26 @@ function describeCommand(command) {
   };
 }
 
-export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl = fetch, now = Date.now, logger = console } = {}) {
+export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl = fetch, now = Date.now, logger = console,
+  waitImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+} = {}) {
   const cooldowns = new Map();
   const pending = new Set();
   let commandReference = "Use /help or /tutorial for instructions.";
   let loggedFirstMessage = false;
+
+  async function requestWithRetry(url, options) {
+    // Keep the same overall timeout across all attempts. Do not retry invalid keys,
+    // requests or quota failures, which require owner action rather than more traffic.
+    for (let attempt = 0; ; attempt++) {
+      options.signal.throwIfAborted();
+      const response = await fetchImpl(url, options);
+      if (![500, 502, 503, 504].includes(response.status) || attempt >= 2) return response;
+      logger.warn(`[AI helper] Google HTTP ${response.status}; retry ${attempt + 1}/2.`);
+      await response.body?.cancel().catch(() => {});
+      await waitImpl(1000 * 2 ** attempt + Math.floor(Math.random() * 250));
+    }
+  }
 
   return {
     setCommands(commands) {
@@ -69,7 +84,7 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
       try {
         await message.channel.sendTyping().catch(() => {});
         stage = "Google request";
-        const response = await fetchImpl(
+        const response = await requestWithRetry(
           `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
           {
             method: "POST",
@@ -109,6 +124,8 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
           logger.warn(`AI helper request failed (HTTP ${response.status}).`);
           await reply(response.status === 429
             ? "The AI helper has reached its Google usage limit. Please try again later or use /help."
+            : response.status === 503
+            ? "Google's AI service is busy right now, even after retrying. Please try again shortly or use /help."
             : "The AI helper is temporarily unavailable. Please try again later or use /help.");
           return;
         }

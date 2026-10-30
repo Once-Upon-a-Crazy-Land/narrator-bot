@@ -129,3 +129,45 @@ test("long answers fit Discord's message limit", async () => {
   await helper.handleMessage(msg);
   assert.ok(msg.replies[0].content.length <= 2000);
 });
+
+test("temporary Google errors recover with bounded backoff and one Discord answer", async () => {
+  let calls = 0;
+  let cancelled = 0;
+  const delays = [];
+  const signals = [];
+  const helper = createAiHelper({
+    apiKey: "test", logger: { warn() {} }, waitImpl: async (ms) => delays.push(ms),
+    fetchImpl: async (_url, options) => {
+      calls++;
+      signals.push(options.signal);
+      if (calls < 3) return { ok: false, status: 503, body: { cancel: async () => { cancelled++; } } };
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [
+        { text: JSON.stringify({ botRelated: true, answer: "Use /help." }) }
+      ] } }] }) };
+    }
+  });
+  const msg = message();
+  await helper.handleMessage(msg);
+  assert.equal(calls, 3);
+  assert.equal(cancelled, 2);
+  assert.ok(delays[0] >= 1000 && delays[0] < 1250);
+  assert.ok(delays[1] >= 2000 && delays[1] < 2250);
+  assert.ok(signals.every((signal) => signal === signals[0]));
+  assert.equal(msg.replies.length, 1);
+  assert.match(msg.replies[0].content, /AI answer/);
+});
+
+test("persistent outages stop after three attempts; key and quota failures are not retried", async () => {
+  for (const status of [503, 500, 502, 504, 400, 403, 404, 429]) {
+    let calls = 0;
+    const helper = createAiHelper({
+      apiKey: "test", logger: { warn() {} }, waitImpl: async () => {},
+      fetchImpl: async () => { calls++; return { ok: false, status }; }
+    });
+    const msg = message();
+    await helper.handleMessage(msg);
+    assert.equal(calls, status >= 500 ? 3 : 1);
+    assert.equal(msg.replies.length, 1);
+    if (status === 503) assert.match(msg.replies[0].content, /even after retrying/);
+  }
+});
