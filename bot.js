@@ -5639,33 +5639,30 @@ const client = new Client({
   }
 });
 
-function updateServerCountPresence() {
+function updateBotPresence() {
   if (!client.user) {
     return;
   }
-
-  const guildCount = client.guilds.cache.size;
-  const suffix = guildCount === 1 ? "" : "s";
 
   try {
     client.user.setPresence({
       activities: [
         {
-          name: `/help in ${guildCount} server${suffix}`,
+          name: "Ping me for help",
           type: ActivityType.Custom
         }
       ],
       status: "online"
     });
   } catch (error) {
-    console.error("Failed to update server count presence:", error);
+    console.error("Failed to update bot presence:", error);
   }
 }
 
 client.once("clientReady", () => {
   console.log(`Logged in as ${client.user.tag}`);
   console.log(`[AI helper v2] User and bot-role mention handler loaded; Google key configured: ${Boolean((process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || "").trim())}.`);
-  updateServerCountPresence();
+  updateBotPresence();
 
   const connectedGuilds = Array.from(client.guilds.cache.values())
     .map((guild) => ({ id: guild.id, name: guild.name }))
@@ -5721,11 +5718,11 @@ client.once("clientReady", () => {
 });
 
 client.on("guildCreate", () => {
-  updateServerCountPresence();
+  updateBotPresence();
 });
 
 client.on("guildDelete", () => {
-  updateServerCountPresence();
+  updateBotPresence();
 });
 
 client.on("interactionCreate", async (interaction) => {
