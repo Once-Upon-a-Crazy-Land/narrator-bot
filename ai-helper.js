@@ -24,6 +24,7 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
       if (!message.guild || message.author?.bot || message.webhookId || !botId) return;
       const mention = new RegExp(`<@!?${botId}>`, "g");
       if (!mention.test(message.content || "")) return;
+      logger.info?.("[AI helper] Received direct mention.");
       const reply = (content) => message.reply({ content, allowedMentions: { parse: [], repliedUser: false } });
       if (!apiKey?.trim()) {
         await reply("My AI helper isn't configured yet. Please use /help or ask the bot owner to enable it.");
@@ -51,8 +52,10 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
       }
       cooldowns.set(userKey, time + 15000);
       pending.add(userKey);
+      let stage = "typing";
       try {
         await message.channel.sendTyping().catch(() => {});
+        stage = "Google request";
         const response = await fetchImpl(
           `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
           {
@@ -88,6 +91,7 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
           }
         );
         if (!response.ok) {
+          stage = "Discord reply";
           // Never log provider bodies, headers or exception details that could contain secrets.
           logger.warn(`AI helper request failed (HTTP ${response.status}).`);
           await reply(response.status === 429
@@ -95,15 +99,18 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
             : "The AI helper is temporarily unavailable. Please try again later or use /help.");
           return;
         }
+        stage = "Google response parsing";
         const data = await response.json();
         const output = (data.candidates?.[0]?.content?.parts || [])
           .filter((part) => !part.thought && typeof part.text === "string")
           .map((part) => part.text).join("").trim();
         if (!output) {
+          stage = "Discord reply";
           await reply("I couldn't generate an answer. Try rephrasing your bot question or use /help.");
           return;
         }
         const result = JSON.parse(output);
+        stage = "Discord reply";
         if (result.botRelated !== true) {
           await reply(OFF_TOPIC);
           return;
@@ -112,9 +119,15 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
         await reply(answer
           ? answer.slice(0, 1900) + "\n\n-# AI answer • Google Gemini"
           : "Please try rephrasing your bot question or use /help.");
-      } catch {
-        logger.warn("AI helper request or Discord reply failed.");
-        await reply("The AI helper couldn't respond right now. Please try again later or use /help.").catch(() => {});
+      } catch (error) {
+        // Only log known error identifiers, never messages containing request data.
+        const knownCodes = new Set(["ENOTFOUND", "ECONNRESET", "ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT"]);
+        const rawCode = error?.cause?.code || error?.code;
+        const code = Number.isInteger(rawCode) || knownCodes.has(rawCode) ? rawCode : "unknown";
+        logger.warn(`[AI helper] Failed during ${stage}; code=${code}; timeout=${error?.name === "TimeoutError"}.`);
+        await reply("The AI helper couldn't respond right now. Please try again later or use /help.").catch(() => {
+          logger.warn("[AI helper] Could not send fallback reply. Check View Channel, Send Messages, Send Messages in Threads, and Read Message History permissions.");
+        });
       } finally {
         pending.delete(userKey);
       }

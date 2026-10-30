@@ -26,6 +26,7 @@ $BotDir = Get-Location
 Write-Host "[1/4] Preparing files..." -ForegroundColor Cyan
 $FilesToUpload = @(
     "bot.js",
+    "ai-helper.js",
     "package.json",
     "docker-compose.yml",
     "Dockerfile",
