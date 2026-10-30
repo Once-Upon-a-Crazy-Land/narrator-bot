@@ -3,6 +3,7 @@ import http from "http";
 import path from "path";
 import dotenv from "dotenv";
 import { createAiHelper } from "./ai-helper.js";
+import { createImageLoader } from "./image-loader.js";
 import sharp from "sharp";
 import Database from "better-sqlite3";
 import { Agent, setGlobalDispatcher } from "undici";
@@ -907,50 +908,10 @@ async function withTimeout(promise, timeoutMs, timeoutMessage) {
   }
 }
 
-async function loadImageBufferFromUrl(url, timeoutMs = 12000) {
-  const rawUrl = String(url || "").trim();
-  if (!rawUrl) {
-    return null;
-  }
-
-  let parsed;
-  try {
-    parsed = new URL(rawUrl);
-  } catch (error) {
-    return null;
-  }
-
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    return null;
-  }
-
-  try {
-    const response = await withTimeout(
-      fetch(parsed.toString(), {
-        method: "GET",
-        headers: {
-          "User-Agent": "NarratorBot/1.0"
-        }
-      }),
-      timeoutMs,
-      "Timed out while loading avatar image."
-    );
-
-    if (!response?.ok) {
-      return null;
-    }
-
-    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
-    if (contentType && !contentType.startsWith("image/")) {
-      return null;
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    return buffer.length > 0 ? buffer : null;
-  } catch (error) {
-    return null;
-  }
-}
+const loadImageBufferFromUrl = createImageLoader({
+  cacheDir: path.join(DATA_DIR, "image-cache"),
+  getRest: () => client.rest
+});
 
 function clearWebhookAutoDeleteTimer(webhookId) {
   if (!webhookId) {

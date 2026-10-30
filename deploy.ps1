@@ -27,6 +27,7 @@ Write-Host "[1/4] Preparing files..." -ForegroundColor Cyan
 $FilesToUpload = @(
     "bot.js",
     "ai-helper.js",
+    "image-loader.js",
     "package.json",
     "docker-compose.yml",
     "Dockerfile",
