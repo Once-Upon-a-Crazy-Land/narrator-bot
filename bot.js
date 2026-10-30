@@ -1969,7 +1969,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
   const formatChannel = (channelId, fallbackText = "not set") => channelId ? `<#${channelId}>` : fallbackText;
 
   const components = [
-    { type: 10, content: "## Setup Manager" },
+    { type: 10, content: "## Setup Manager\nChoose who can manage the bot, where it posts updates, and how members use roleplay. Each section shows its current setting; use the buttons below it to make changes." },
     { type: 14, divider: true, spacing: 1 }
   ];
 
@@ -1990,7 +1990,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     ]
   });
 
-  components.push({ type: 10, content: `### Admin Roles\n${BULLET_EMOJI_RAW} Current: ${formatRolePreview(roleIds)}` });
+  components.push({ type: 10, content: `### Admin Roles\nMembers with these roles can manage bot settings and use admin setup commands. Only add roles you trust to manage the bot.\n${BULLET_EMOJI_RAW} Current: ${formatRolePreview(roleIds)}` });
   components.push({
     type: 1,
     components: [
@@ -2009,7 +2009,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     ]
   });
 
-  components.push({ type: 10, content: `### Dungeon Master Roles\n${BULLET_EMOJI_RAW} Current: ${formatRolePreview(dungeonMasterRoleIds)}` });
+  components.push({ type: 10, content: `### Dungeon Master Roles\nMembers with these roles can create temporary items for roleplay using /setup create-item. This role does not grant access to the setup panel.\n${BULLET_EMOJI_RAW} Current: ${formatRolePreview(dungeonMasterRoleIds)}` });
   components.push({
     type: 1,
     components: [
@@ -2028,7 +2028,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     ]
   });
 
-  components.push({ type: 10, content: `### Logs Channel\n${BULLET_EMOJI_RAW} Current: ${formatChannel(logsChannel)}` });
+  components.push({ type: 10, content: `### Logs Channel\nChoose where the bot posts activity logs, such as profile changes. Level-up alerts also use this channel unless you set a separate channel below. Clear it to stop sending logs here.\n${BULLET_EMOJI_RAW} Current: ${formatChannel(logsChannel)}` });
   components.push({
     type: 1,
     components: [
@@ -2049,7 +2049,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
 
   components.push({
     type: 10,
-    content: `### Character Level-Up Alerts Channel\n${BULLET_EMOJI_RAW} Current: ${
+    content: `### Character Level-Up Alerts Channel\nChoose where character level-up announcements are posted. Clear it to use the logs channel; if neither channel is set, no alerts are posted.\n${BULLET_EMOJI_RAW} Current: ${
       formatChannel(characterLevelUpAlertsChannel, `not set${logsChannel ? ` (falls back to <#${logsChannel}>)` : ""}`)
     }`
   });
@@ -2073,7 +2073,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
 
   components.push({
     type: 10,
-    content: `### User Level-Up Alerts Channel\n${BULLET_EMOJI_RAW} Current: ${
+    content: `### User Level-Up Alerts Channel\nChoose where member level-up announcements are posted. These track the user, rather than their characters. Clear it to use the logs channel; if neither channel is set, no alerts are posted.\n${BULLET_EMOJI_RAW} Current: ${
       formatChannel(userLevelUpAlertsChannel, `not set${logsChannel ? ` (falls back to <#${logsChannel}>)` : ""}`)
     }`
   });
@@ -2095,7 +2095,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     ]
   });
 
-  components.push({ type: 10, content: `### /say Allowed Channels\n${BULLET_EMOJI_RAW} Current: ${formatSayChannelPreview()}` });
+  components.push({ type: 10, content: `### /say Allowed Channels\nChoose which channels members can use for /say roleplay messages. Clear the list to allow all channels.\n${BULLET_EMOJI_RAW} Current: ${formatSayChannelPreview()}` });
   components.push({
     type: 1,
     components: [
@@ -2114,7 +2114,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     ]
   });
 
-  components.push({ type: 10, content: `### Roleplay\n${BULLET_EMOJI_RAW} Status: ${roleplayEnabled ? "enabled for everyone" : "disabled for normal users (admins and bot managers can still use /say commands)"}` });
+  components.push({ type: 10, content: `### Roleplay\nEnable /say commands for members, or disable them to pause member roleplay. Admins and bot managers can still use /say while roleplay is disabled.\n${BULLET_EMOJI_RAW} Status: ${roleplayEnabled ? "enabled for everyone" : "disabled for normal users (admins and bot managers can still use /say commands)"}` });
   components.push({
     type: 1,
     components: [
