@@ -86,7 +86,7 @@ test("off-topic results cannot display the model's unrelated answer", async () =
   const { helper } = harness({ botRelated: false, answer: "An unrelated answer" });
   const msg = message({ content: "<@123> What is the capital of France?" });
   await helper.handleMessage(msg);
-  assert.match(msg.replies[0].content, /only help with The Narrator/);
+  assert.match(msg.replies[0].content, /only help with my commands/);
   assert.doesNotMatch(msg.replies[0].content, /An unrelated answer/);
 });
 
@@ -97,7 +97,7 @@ test("missing key, empty mention and long questions do not call Google", async (
   assert.equal(requests.length, 0);
   const msg = message();
   await createAiHelper().handleMessage(msg);
-  assert.match(msg.replies[0].content, /isn't configured/);
+  assert.match(msg.replies[0].content, /not ready/);
 });
 
 test("user cooldown prevents repeated provider requests", async () => {
@@ -154,7 +154,7 @@ test("temporary Google errors recover with bounded backoff and one Discord answe
   assert.ok(delays[1] >= 2000 && delays[1] < 2250);
   assert.ok(signals.every((signal) => signal === signals[0]));
   assert.equal(msg.replies.length, 1);
-  assert.match(msg.replies[0].content, /AI answer/);
+  assert.equal(msg.replies[0].content, "Use /help.");
 });
 
 test("persistent outages stop after three attempts; key and quota failures are not retried", async () => {

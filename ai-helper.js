@@ -1,4 +1,4 @@
-const OFF_TOPIC = "I can only help with The Narrator bot. Ask me about its commands, characters, roleplay messages, wallets, inventory, or setup.";
+const OFF_TOPIC = "I can only help with my commands and features. Ask me about characters, roleplay messages, wallets, inventory, or setup.";
 
 // Dynamic choices can contain server data, so include only static command metadata.
 function describeCommand(command) {
@@ -54,13 +54,13 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
       logger.info?.(`[AI helper] Received ${directMentioned ? "direct" : "bot role"} mention.`);
       const reply = (content) => message.reply({ content, allowedMentions: { parse: [], repliedUser: false } });
       if (!apiKey?.trim()) {
-        await reply("My AI helper isn't configured yet. Please use /help or ask the bot owner to enable it.");
+        await reply("I'm not ready to answer questions yet. Please use /help or ask my owner to finish setting me up.");
         return;
       }
       const withoutUserMention = content.replace(mention, "");
       const question = (roleMention ? withoutUserMention.replace(roleMention, "") : withoutUserMention).trim();
       if (!question) {
-        await reply("Mention me with a question about The Narrator, for example: How do I create a character? Questions are sent to Google Gemini for an AI answer.");
+        await reply("Hi! Ask me about my commands or features, for example: How do I create a character?");
         return;
       }
       if (question.length > 4000) {
@@ -92,7 +92,9 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
             signal: AbortSignal.timeout(25000),
             body: JSON.stringify({
               systemInstruction: { parts: [{ text:
-                "You are the AI support helper for The Narrator Discord roleplay bot. " +
+                "You are The Narrator, a Discord roleplay bot. Speak as yourself in first person: I, me, my commands, my features. " +
+                "Do not introduce yourself as an AI helper or refer to yourself as a separate assistant. " +
+                "Do not add AI labels, provider names or technical disclaimers to ordinary answers. If directly asked how you work, answer honestly. " +
                 "Answer ONLY questions about this bot: commands, characters, roleplay messaging, profiles, " +
                 "wallets, points, shops, inventory, trades, premium slots, admin setup and troubleshooting. " +
                 "Decline general knowledge, coding, creative writing, roleplay requests, and unrelated questions, " +
@@ -123,10 +125,10 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
           // Never log provider bodies, headers or exception details that could contain secrets.
           logger.warn(`AI helper request failed (HTTP ${response.status}).`);
           await reply(response.status === 429
-            ? "The AI helper has reached its Google usage limit. Please try again later or use /help."
+            ? "I've reached my limit for answering questions right now. Please try again later or use /help."
             : response.status === 503
-            ? "Google's AI service is busy right now, even after retrying. Please try again shortly or use /help."
-            : "The AI helper is temporarily unavailable. Please try again later or use /help.");
+            ? "I'm having trouble answering right now, even after retrying. Please try again shortly or use /help."
+            : "I can't answer right now. Please try again later or use /help.");
           return;
         }
         stage = "Google response parsing";
@@ -136,7 +138,7 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
           .map((part) => part.text).join("").trim();
         if (!output) {
           stage = "Discord reply";
-          await reply("I couldn't generate an answer. Try rephrasing your bot question or use /help.");
+          await reply("I couldn't find an answer to that. Try rephrasing your question or use /help.");
           return;
         }
         const result = JSON.parse(output);
@@ -147,7 +149,7 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
         }
         const answer = typeof result.answer === "string" ? result.answer.trim() : "";
         await reply(answer
-          ? answer.slice(0, 1900) + "\n\n-# AI answer • Google Gemini"
+          ? answer.slice(0, 1900)
           : "Please try rephrasing your bot question or use /help.");
       } catch (error) {
         // Only log known error identifiers, never messages containing request data.
@@ -155,7 +157,7 @@ export function createAiHelper({ apiKey, model = "gemini-3.8-flash", fetchImpl =
         const rawCode = error?.cause?.code || error?.code;
         const code = Number.isInteger(rawCode) || knownCodes.has(rawCode) ? rawCode : "unknown";
         logger.warn(`[AI helper] Failed during ${stage}; code=${code}; timeout=${error?.name === "TimeoutError"}.`);
-        await reply("The AI helper couldn't respond right now. Please try again later or use /help.").catch(() => {
+        await reply("I couldn't respond right now. Please try again later or use /help.").catch(() => {
           logger.warn("[AI helper] Could not send fallback reply. Check View Channel, Send Messages, Send Messages in Threads, and Read Message History permissions.");
         });
       } finally {
