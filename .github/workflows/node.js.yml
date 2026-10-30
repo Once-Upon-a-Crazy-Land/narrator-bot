@@ -17,8 +17,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
+      - name: Work around orphaned policies gitlink in CI
+        # Changes only the temporary runner index, not the repository or bot data.
+        # Checkout credential cleanup fails on this gitlink without .gitmodules.
+        run: git update-index --force-remove narrator-bot-policies
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
