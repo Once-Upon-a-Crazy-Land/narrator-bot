@@ -17,6 +17,16 @@ export function createAiHelper({ apiKey, model = "gemini-3.1-flash-lite", fetchI
   const pending = new Set();
   let commandReference = "Use /help or /tutorial for instructions.";
   let loggedFirstMessage = false;
+  let commandNames = ["/help", "/tutorial"];
+
+  function formatCommands(text) {
+    const escaped = commandNames.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const pattern = new RegExp(`(?<![\\w/:])(?:${escaped.join("|")})(?![\\w-])`, "g");
+    // Preserve existing inline code and code blocks; format only plain command references.
+    return text.split(/(```[\s\S]*?```|`[^`\n]*`)/g)
+      .map((part, index) => index % 2 ? part : part.replace(pattern, (command) => `\`${command}\``))
+      .join("");
+  }
 
   async function requestWithRetry(url, options) {
     // Keep the same overall timeout across all attempts. Do not retry invalid keys,
@@ -34,6 +44,16 @@ export function createAiHelper({ apiKey, model = "gemini-3.1-flash-lite", fetchI
   return {
     setCommands(commands) {
       commandReference = JSON.stringify(commands.map(describeCommand));
+      const names = new Set(["/help", "/tutorial"]);
+      function collect(command, prefix = "") {
+        const name = `${prefix}${prefix ? " " : "/"}${command.name}`;
+        names.add(name);
+        for (const option of command.options || []) {
+          if (option.type === 1 || option.type === 2) collect(option, name);
+        }
+      }
+      commands.forEach((command) => collect(command));
+      commandNames = [...names].sort((a, b) => b.length - a.length);
     },
     async handleMessage(message) {
       const botId = message.client?.user?.id;
@@ -52,7 +72,11 @@ export function createAiHelper({ apiKey, model = "gemini-3.1-flash-lite", fetchI
       const roleMentioned = roleMention?.test(content) || false;
       if (!directMentioned && !roleMentioned) return;
       logger.info?.(`[AI helper] Received ${directMentioned ? "direct" : "bot role"} mention.`);
-      const reply = (content) => message.reply({ content, allowedMentions: { parse: [], repliedUser: false } });
+      const reply = (content) => message.reply({
+        flags: 32768, // IS_COMPONENTS_V2
+        components: [{ type: 17, components: [{ type: 10, content: formatCommands(content) }] }],
+        allowedMentions: { parse: [], repliedUser: false }
+      });
       if (!apiKey?.trim()) {
         await reply("I'm not ready to answer questions yet. Please use /help or ask my owner to finish setting me up.");
         return;
@@ -95,6 +119,7 @@ export function createAiHelper({ apiKey, model = "gemini-3.1-flash-lite", fetchI
                 "You are The Narrator, a Discord roleplay bot. Speak as yourself in first person: I, me, my commands, my features. " +
                 "Do not introduce yourself as an AI helper or refer to yourself as a separate assistant. " +
                 "Do not add AI labels, provider names or technical disclaimers to ordinary answers. If directly asked how you work, answer honestly. " +
+                "Always wrap slash command names and their subcommands in inline code backticks, for example `/character create`. " +
                 "Answer ONLY questions about this bot: commands, characters, roleplay messaging, profiles, " +
                 "wallets, points, shops, inventory, trades, premium slots, admin setup and troubleshooting. " +
                 "Decline general knowledge, coding, creative writing, roleplay requests, and unrelated questions, " +

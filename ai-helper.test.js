@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createAiHelper } from "./ai-helper.js";
 
+const replyText = (msg) => msg.replies[0].components[0].components[0].content;
+
 function message(overrides = {}) {
   const replies = [];
   return {
@@ -86,8 +88,8 @@ test("off-topic results cannot display the model's unrelated answer", async () =
   const { helper } = harness({ botRelated: false, answer: "An unrelated answer" });
   const msg = message({ content: "<@123> What is the capital of France?" });
   await helper.handleMessage(msg);
-  assert.match(msg.replies[0].content, /only help with my commands/);
-  assert.doesNotMatch(msg.replies[0].content, /An unrelated answer/);
+  assert.match(replyText(msg), /only help with my commands/);
+  assert.doesNotMatch(replyText(msg), /An unrelated answer/);
 });
 
 test("missing key, empty mention and long questions do not call Google", async () => {
@@ -97,7 +99,7 @@ test("missing key, empty mention and long questions do not call Google", async (
   assert.equal(requests.length, 0);
   const msg = message();
   await createAiHelper().handleMessage(msg);
-  assert.match(msg.replies[0].content, /not ready/);
+  assert.match(replyText(msg), /not ready/);
 });
 
 test("user cooldown prevents repeated provider requests", async () => {
@@ -106,7 +108,7 @@ test("user cooldown prevents repeated provider requests", async () => {
   const second = message();
   await helper.handleMessage(second);
   assert.equal(requests.length, 1);
-  assert.match(second.replies[0].content, /wait/);
+  assert.match(replyText(second), /wait/);
 });
 
 test("provider failures and malformed responses produce safe fallback replies", async () => {
@@ -119,7 +121,7 @@ test("provider failures and malformed responses produce safe fallback replies", 
     const helper = createAiHelper({ apiKey: "test", fetchImpl: async () => response, logger: { warn() {} } });
     await helper.handleMessage(msg);
     assert.equal(msg.replies.length, 1);
-    assert.match(msg.replies[0].content, /\/help/);
+    assert.match(replyText(msg), /\/help/);
   }
 });
 
@@ -127,7 +129,7 @@ test("long answers fit Discord's message limit", async () => {
   const { helper } = harness({ botRelated: true, answer: "x".repeat(5000) });
   const msg = message();
   await helper.handleMessage(msg);
-  assert.ok(msg.replies[0].content.length <= 2000);
+  assert.ok(replyText(msg).length <= 4000);
 });
 
 test("temporary Google errors recover with bounded backoff and one Discord answer", async () => {
@@ -154,7 +156,7 @@ test("temporary Google errors recover with bounded backoff and one Discord answe
   assert.ok(delays[1] >= 2000 && delays[1] < 2250);
   assert.ok(signals.every((signal) => signal === signals[0]));
   assert.equal(msg.replies.length, 1);
-  assert.equal(msg.replies[0].content, "Use /help.");
+  assert.equal(replyText(msg), "Use `/help`.");
 });
 
 test("persistent outages stop after three attempts; key and quota failures are not retried", async () => {
@@ -168,6 +170,22 @@ test("persistent outages stop after three attempts; key and quota failures are n
     await helper.handleMessage(msg);
     assert.equal(calls, status >= 500 ? 3 : 1);
     assert.equal(msg.replies.length, 1);
-    if (status === 503) assert.match(msg.replies[0].content, /even after retrying/);
+    if (status === 503) assert.match(replyText(msg), /even after retrying/);
   }
+});
+
+test("answers use V2 containers and format full command paths without double backticks", async () => {
+  const { helper } = harness({ botRelated: true, answer:
+    "Use /character create or `/character create-and-assign`. See /help. Keep https://example.com/help and /helpful unchanged."
+  });
+  helper.setCommands([{ name: "character", options: [
+    { type: 1, name: "create" }, { type: 1, name: "create-and-assign" }
+  ] }]);
+  const msg = message();
+  await helper.handleMessage(msg);
+  assert.equal(msg.replies[0].flags, 32768);
+  assert.equal(msg.replies[0].components[0].type, 17);
+  assert.equal(msg.replies[0].components[0].components[0].type, 10);
+  assert.equal(msg.replies[0].content, undefined);
+  assert.equal(replyText(msg), "Use `/character create` or `/character create-and-assign`. See `/help`. Keep https://example.com/help and /helpful unchanged.");
 });
