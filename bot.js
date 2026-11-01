@@ -5645,7 +5645,7 @@ client.once("clientReady", () => {
   const commandGuildId = (process.env.COMMAND_GUILD_ID || "").trim();
   const commandMode = commandGuildId ? `guild (${commandGuildId})` : "global";
   console.log(
-    `[Startup] Mode=${commandMode} | Characters=${characters.length} | Assignments=${Object.keys(assignments).length} | Profiles=${Object.keys(userProfiles).length} | PremiumSKUs=${DISCORD_PREMIUM_SLOT_SKU_IDS.size}`
+    `[Startup] Mode=${commandMode} | Servers=${client.guilds.cache.size} | Characters=${characters.length} | Assignments=${Object.keys(assignments).length} | Profiles=${Object.keys(userProfiles).length} | PremiumSKUs=${DISCORD_PREMIUM_SLOT_SKU_IDS.size}`
   );
 
   if (!commandGuildId) {
@@ -5678,11 +5678,13 @@ client.once("clientReady", () => {
   });
 });
 
-client.on("guildCreate", () => {
+client.on("guildCreate", (guild) => {
+  console.log(`[Servers] Joined ${guild.name} (${guild.id}) | Total servers=${client.guilds.cache.size}`);
   updateBotPresence();
 });
 
-client.on("guildDelete", () => {
+client.on("guildDelete", (guild) => {
+  console.log(`[Servers] Left ${guild.name} (${guild.id}) | Total servers=${client.guilds.cache.size}`);
   updateBotPresence();
 });
 
