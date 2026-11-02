@@ -198,6 +198,8 @@ function isEntitlementActive(entitlement) {
     return false;
   }
 
+  const startsAt = entitlement.startsAt || entitlement.starts_at;
+  if (startsAt && !(new Date(startsAt).getTime() <= Date.now())) return false;
   const endsAt = entitlement.endsAt || entitlement.ends_at;
   if (!endsAt) {
     return true;
@@ -205,7 +207,7 @@ function isEntitlementActive(entitlement) {
 
   const expiresAt = new Date(endsAt).getTime();
   if (!Number.isFinite(expiresAt)) {
-    return true;
+    return false;
   }
 
   return expiresAt > Date.now();
@@ -226,7 +228,7 @@ function syncPremiumSlotsFromInteraction(interaction) {
 
     const entries = getEntitlementEntries(interaction.entitlements);
 
-    let hasActivePremium = false;
+    const activeEntitlements = [];
     for (const entitlement of entries) {
       if (!isEntitlementActive(entitlement)) {
         continue;
@@ -247,18 +249,51 @@ function syncPremiumSlotsFromInteraction(interaction) {
         continue;
       }
 
-      hasActivePremium = true;
-      break;
+      activeEntitlements.push(entitlement);
     }
 
-    if (hasActivePremium) {
-      entitlementSlotBonusByScopeUser.set(scopeKey, DISCORD_PREMIUM_SUBSCRIPTION_SLOTS);
+    if (activeEntitlements.length) {
+      entitlementSlotBonusByScopeUser.set(scopeKey, activeEntitlements);
     } else {
       entitlementSlotBonusByScopeUser.delete(scopeKey);
     }
   } catch (error) {
     console.error("Failed to sync premium slot entitlements:", error);
   }
+}
+
+// Retain entitlement objects to check expiry even while the owner is inactive.
+function updatePremiumEntitlement(entitlement) {
+  const userId = getEntitlementUserId(entitlement);
+  const guildId = getEntitlementGuildId(entitlement);
+  if (!userId || !DISCORD_PREMIUM_SLOT_SKU_IDS.has(getEntitlementSkuId(entitlement))) return;
+  for (const [id] of client.guilds.cache) {
+    if (guildId && guildId !== id) continue;
+    const key = getUserSlotsKey(id, userId);
+    const entries = (entitlementSlotBonusByScopeUser.get(key) || [])
+      .filter(entry => entry.id !== entitlement.id);
+    if (isEntitlementActive(entitlement)) entries.push(entitlement);
+    if (entries.length) entitlementSlotBonusByScopeUser.set(key, entries);
+    else entitlementSlotBonusByScopeUser.delete(key);
+  }
+}
+
+async function refreshPremiumEntitlements() {
+  if (!DISCORD_PREMIUM_SLOT_SKU_IDS.size) return;
+  const entries = [];
+  let after;
+  do {
+    const page = await client.application.entitlements.fetch({
+      skus: [...DISCORD_PREMIUM_SLOT_SKU_IDS], excludeEnded: true,
+      limit: 100, after, cache: false
+    });
+    entries.push(...page.values());
+    if (page.size < 100) break;
+    after = page.last().id;
+  } while (after);
+  // Replace only after every page succeeds.
+  entitlementSlotBonusByScopeUser.clear();
+  for (const entry of entries) updatePremiumEntitlement(entry);
 }
 
 function ensureDir(dirPath) {
@@ -2776,7 +2811,8 @@ function getPremiumSlotBonus(guildId, userId) {
     return DISCORD_PREMIUM_SUBSCRIPTION_SLOTS;
   }
 
-  return entitlementSlotBonusByScopeUser.get(getUserSlotsKey(guildId, userId)) || 0;
+  const entries = entitlementSlotBonusByScopeUser.get(getUserSlotsKey(guildId, userId)) || [];
+  return entries.some(isEntitlementActive) ? DISCORD_PREMIUM_SUBSCRIPTION_SLOTS : 0;
 }
 
 function getUserCharacterSlotLimit(guildId, userId) {
@@ -3012,7 +3048,7 @@ async function sendUserLevelUpLog(clientInstance, guildId, userId, levelUpInfo, 
   }
 }
 
-function distributePremiumDailyRewards() {
+async function distributePremiumDailyRewards() {
   try {
     let lastRewardDate = "";
     try {
@@ -3028,30 +3064,30 @@ function distributePremiumDailyRewards() {
     let rewardCount = 0;
     const rewardedPremiumUsers = [];
 
-    // Award to manual premium users (PREMIUM_USERS env)
+    const candidates = new Set(entitlementSlotBonusByScopeUser.keys());
     for (const userId of PREMIUM_USER_IDS) {
-      for (const [, guild] of client.guilds.cache) {
-        const member = guild.members.cache.get(userId);
-        if (member) {
-          addPoints(guild.id, userId, PREMIUM_DAILY_POINTS);
-          rewardCount++;
-          rewardedPremiumUsers.push(member.user?.tag || member.displayName || userId);
-        }
+      for (const [guildId] of client.guilds.cache) {
+        candidates.add(getUserSlotsKey(guildId, userId));
       }
     }
-
-    // Award to Discord subscription premium users
-    for (const [scopeKey] of entitlementSlotBonusByScopeUser) {
-      const parts = scopeKey.split(":");
-      if (parts.length < 2) continue;
-      const guildId = parts[0];
-      const userId = parts[1];
-      if (PREMIUM_USER_IDS.has(userId)) continue; // already awarded above
+    const recipients = [];
+    for (const scopeKey of candidates) {
+      const [guildId, userId] = scopeKey.split(":");
+      if (!getPremiumSlotBonus(guildId, userId)) continue;
+      const guild = client.guilds.cache.get(guildId);
+      if (!guild) continue;
+      try {
+        // User subscriptions apply globally, but rewards require server membership.
+        const member = await guild.members.fetch(userId);
+        if (member) recipients.push({ guildId, userId, member });
+      } catch (error) {
+        if (error.code !== 10007) throw error; // Unknown Member: no reward in this guild.
+      }
+    }
+    for (const { guildId, userId, member } of recipients) {
       addPoints(guildId, userId, PREMIUM_DAILY_POINTS);
       rewardCount++;
-      const guild = client.guilds.cache.get(guildId);
-      const member = guild?.members?.cache?.get(userId);
-      rewardedPremiumUsers.push(member?.user?.tag || member?.displayName || userId);
+      rewardedPremiumUsers.push(member.user?.tag || member.displayName || userId);
     }
 
     writeJson(PREMIUM_DAILY_REWARD_PATH, { lastDate: today });
@@ -5668,8 +5704,16 @@ client.once("clientReady", () => {
   }
 
   // Premium daily rewards: run once on startup, then check every hour
-  distributePremiumDailyRewards();
-  setInterval(distributePremiumDailyRewards, 60 * 60 * 1000);
+  const refreshPremiumAndRewards = async () => {
+    try {
+      await refreshPremiumEntitlements();
+      await distributePremiumDailyRewards();
+    } catch (error) {
+      console.error("Failed to refresh premium entitlements; rewards deferred:", error);
+    }
+  };
+  void refreshPremiumAndRewards();
+  setInterval(refreshPremiumAndRewards, 60 * 60 * 1000);
 
   // Cleanup stale webhooks that didn't get deleted due to bot restart
   console.log("[Startup] Starting stale webhook cleanup...");
@@ -6704,8 +6748,8 @@ client.on("interactionCreate", async (interaction) => {
           const accentColor = character.cardAccent || "";
           const cardBackground = character.cardBackground || "";
 
-          // Check if user has premium for background image
-          const hasPremium = getPremiumSlotBonus(interaction.guildId, interaction.user.id) > 0;
+          // Background access belongs to the character owner.
+          const hasPremium = ownerId ? getPremiumSlotBonus(interaction.guildId, ownerId) > 0 : false;
 
           let cardBuffer = null;
           try {
@@ -12621,45 +12665,18 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-client.on("entitlementCreate", (entitlement) => {
-  try {
-    const skuId = getEntitlementSkuId(entitlement);
-    const userId = getEntitlementUserId(entitlement);
-    const guildId = getEntitlementGuildId(entitlement);
-    console.log(`[Entitlement] Created: SKU=${skuId}, User=${userId || "none"}, Guild=${guildId || "none"}`);
-
-    if (DISCORD_PREMIUM_SLOT_SKU_IDS.size === 0 || !DISCORD_PREMIUM_SLOT_SKU_IDS.has(skuId) || !userId) {
-      return;
+for (const event of ["entitlementCreate", "entitlementUpdate", "entitlementDelete"]) {
+  client.on(event, entitlement => {
+    try {
+      updatePremiumEntitlement(event === "entitlementDelete"
+        ? { id: entitlement.id, skuId: getEntitlementSkuId(entitlement),
+            userId: getEntitlementUserId(entitlement), guildId: getEntitlementGuildId(entitlement), deleted: true }
+        : entitlement);
+    } catch (error) {
+      console.error("Failed to handle " + event + ":", error);
     }
-
-    // Eagerly update the in-memory cache so the user's subscription slots are visible immediately
-    if (guildId) {
-      const scopeKey = getUserSlotsKey(guildId, userId);
-      entitlementSlotBonusByScopeUser.set(scopeKey, DISCORD_PREMIUM_SUBSCRIPTION_SLOTS);
-    }
-  } catch (error) {
-    console.error("Failed to handle entitlementCreate:", error);
-  }
-});
-
-client.on("entitlementDelete", (entitlement) => {
-  try {
-    const skuId = getEntitlementSkuId(entitlement);
-    const userId = getEntitlementUserId(entitlement);
-    const guildId = getEntitlementGuildId(entitlement);
-    console.log(`[Entitlement] Deleted: SKU=${skuId}, User=${userId || "none"}, Guild=${guildId || "none"}`);
-
-    if (DISCORD_PREMIUM_SLOT_SKU_IDS.size === 0 || !DISCORD_PREMIUM_SLOT_SKU_IDS.has(skuId) || !userId || !guildId) {
-      return;
-    }
-
-    // Remove from in-memory cache; next interaction will re-sync from Discord
-    const scopeKey = getUserSlotsKey(guildId, userId);
-    entitlementSlotBonusByScopeUser.delete(scopeKey);
-  } catch (error) {
-    console.error("Failed to handle entitlementDelete:", error);
-  }
-});
+  });
+}
 
 client.on("messageCreate", (message) => {
   aiHelper.handleMessage(message).catch(() => console.warn("AI helper could not handle mention."));

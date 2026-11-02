@@ -77,5 +77,9 @@ test("profile card renderer includes the recovered portrait with and without a b
     assert.equal(metadata.height, 675);
     const pixel = await sharp(card).extract({ left: 150, top: 150, width: 1, height: 1 }).removeAlpha().raw().toBuffer();
     assert.deepEqual([...pixel], [255, 0, 0]);
+    if (backgroundUrl) {
+      const backgroundPixel = await sharp(card).extract({ left: 5, top: 5, width: 1, height: 1 }).removeAlpha().raw().toBuffer();
+      assert.deepEqual([...backgroundPixel], [255, 0, 0], "background image must be visible beneath the overlay");
+    }
   }
 });
