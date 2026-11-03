@@ -2512,6 +2512,27 @@ function getCharacterById(characterId, guildId) {
   return getCharactersForGuild(guildId).find((character) => character.id === characterId);
 }
 
+const premiumOutfitComponents = [{
+  type: 1,
+  components: [{
+    type: 2, style: 5, label: "Get Premium",
+    url: "https://discord.com/discovery/applications/1472909892799959141/store/1484936137859661884"
+  }]
+}];
+
+function saveOutfits(character, outfits, equippedOutfit) {
+  const index = characters.indexOf(character);
+  const updated = { ...character, outfits, equippedOutfit };
+  const next = [...characters];
+  next[index] = updated;
+  writeJson(CHARACTERS_PATH, next);
+  characters[index] = updated;
+}
+
+function findOutfit(character, name) {
+  return character.outfits?.find((outfit) => outfit.name.toLowerCase() === name?.toLowerCase());
+}
+
 function getCharacterDisplayLabel(character) {
   const id = String(character?.id || "").trim();
   const name = String(character?.name || "").trim();
@@ -4581,6 +4602,23 @@ async function registerCommands() {
         )
     );
 
+  const outfitCommand = new SlashCommandBuilder()
+    .setName("outfit")
+    .setDescription("Manage outfits for your selected character")
+    .addSubcommand((sub) => sub.setName("save").setDescription("Save or update an outfit")
+      .addStringOption((option) => option.setName("name").setDescription("Outfit name")
+        .setRequired(true).setMaxLength(40))
+      .addStringOption((option) => option.setName("portrait").setDescription("Direct HTTPS portrait URL")
+        .setRequired(true).setMaxLength(2048))
+      .addStringOption((option) => option.setName("display_name").setDescription("Optional name shown in /say")
+        .setMaxLength(80)))
+    .addSubcommand((sub) => sub.setName("equip").setDescription("Equip an outfit or restore Default")
+      .addStringOption((option) => option.setName("outfit").setDescription("Outfit to equip")
+        .setRequired(true).setAutocomplete(true)))
+    .addSubcommand((sub) => sub.setName("remove").setDescription("Remove a saved outfit")
+      .addStringOption((option) => option.setName("outfit").setDescription("Outfit to remove")
+        .setRequired(true).setAutocomplete(true)));
+
   const sayCommand = new SlashCommandBuilder()
     .setName("say")
     .setDescription("Send a message as your selected character")
@@ -4602,6 +4640,10 @@ async function registerCommands() {
         .setName("reply_to")
         .setDescription("Optional message ID to reply to")
         .setRequired(false)
+    )
+    .addStringOption((option) =>
+      option.setName("outfit").setDescription("Equip an outfit for this and future messages")
+        .setAutocomplete(true)
     )
     .addBooleanOption((option) =>
       option
@@ -5022,6 +5064,7 @@ async function registerCommands() {
     characterCommand.toJSON(),
     userCommand.toJSON(),
     adminCommand.toJSON(),
+    outfitCommand.toJSON(),
     sayCommand.toJSON(),
     sayEditCommand.toJSON(),
     sayDeleteCommand.toJSON(),
@@ -6035,6 +6078,17 @@ client.on("interactionCreate", async (interaction) => {
 
     if (interaction.isAutocomplete()) {
       const subcommand = interaction.options.getSubcommand(false);
+      if (interaction.commandName === "say" || interaction.commandName === "outfit") {
+        const { guildId, user } = interaction;
+        const id = getSelectedCharacterId(guildId, user.id);
+        const character = getAssignedUserId(guildId, id) === user.id ? getCharacterById(id, guildId) : null;
+        const names = (character?.outfits ?? []).map((outfit) => outfit.name);
+        if (subcommand !== "remove") names.unshift("Default");
+        const query = interaction.options.getFocused().toLowerCase();
+        await interaction.respond(names.filter((name) => name.toLowerCase().includes(query))
+          .map((name) => ({ name, value: name })));
+        return;
+      }
       if (interaction.commandName === "character" && (subcommand === "pick" || subcommand === "assign" || subcommand === "remove" || subcommand === "edit" || subcommand === "change-id" || subcommand === "delete" || subcommand === "profile")) {
         const focusedValue = interaction.options.getFocused(true);
         if (focusedValue.name === "character") {
@@ -7706,6 +7760,63 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
+      if (interaction.commandName === "outfit") {
+        const { guildId, user, options } = interaction;
+        const id = getSelectedCharacterId(guildId, user.id);
+        const character = getCharacterById(id, guildId);
+        const respond = (message, components = []) => replyComponentsV2(
+          interaction, "Outfits", [message], components, { ephemeral: true }
+        );
+        if (!character || getAssignedUserId(guildId, id) !== user.id) {
+          await respond("Select one of your characters with /character pick.");
+          return;
+        }
+
+        const action = options.getSubcommand();
+        const name = options.getString(action === "save" ? "name" : "outfit", true).trim();
+        const isDefault = name.toLowerCase() === "default";
+        const outfits = character.outfits ?? [];
+        const existing = findOutfit(character, name);
+        if ((action === "save" || (action === "equip" && !isDefault)) && !getPremiumSlotBonus(guildId, user.id)) {
+          await respond("You need an active Premium subscription to save or equip outfits.", premiumOutfitComponents);
+          return;
+        }
+
+        if (action === "save") {
+          const avatarUrl = options.getString("portrait", true).trim();
+          const displayName = options.getString("display_name")?.trim() || null;
+          const url = URL.canParse(avatarUrl) ? new URL(avatarUrl) : null;
+          if (!name || isDefault || url?.protocol !== "https:" || url.username || url.password) {
+            await respond("Enter an outfit name other than Default and a direct HTTPS portrait URL.");
+            return;
+          }
+          if (!existing && outfits.length >= 3) {
+            await respond("This character already has three saved outfits.");
+            return;
+          }
+          const outfit = { name: existing?.name ?? name, avatarUrl, displayName };
+          const updated = existing ? outfits.map((item) => item === existing ? outfit : item) : [...outfits, outfit];
+          saveOutfits(character, updated, character.equippedOutfit);
+          await respond("Outfit saved. Equip it with /outfit equip or the outfit option in /say.");
+          return;
+        }
+
+        if (!existing && !(action === "equip" && isDefault)) {
+          await respond("That outfit is not saved for your selected character.");
+          return;
+        }
+
+        if (action === "remove") {
+          saveOutfits(character, outfits.filter((item) => item !== existing),
+            character.equippedOutfit === existing.name ? null : character.equippedOutfit);
+          await respond("Outfit removed.");
+        } else {
+          saveOutfits(character, outfits, existing?.name ?? null);
+          await respond("Outfit equipped.");
+        }
+        return;
+      }
+
       if (interaction.commandName === "say") {
         // Defer reply immediately since webhook operations can take time
         await interaction.deferReply({ ephemeral: true, flags: 32768 });
@@ -8067,10 +8178,25 @@ client.on("interactionCreate", async (interaction) => {
             outboundContent = `${replyPrefix}${trimmedBody}`;
           }
 
+          const requested = interaction.options.getString("outfit")?.trim();
+          const useDefault = requested?.toLowerCase() === "default";
+          const hasPremium = getPremiumSlotBonus(interaction.guildId, interaction.user.id) > 0;
+          const outfitBlocked = requested != null && !useDefault && !hasPremium;
+          const current = getCharacterById(selectedCharacterId, interaction.guildId);
+          if (!current || getAssignedUserId(interaction.guildId, selectedCharacterId) !== interaction.user.id) {
+            await editComponentsV2(interaction, null, ["You are no longer assigned to that character."], []);
+            return;
+          }
+          const outfit = hasPremium && !useDefault ? findOutfit(current, requested ?? current.equippedOutfit) : null;
+          if (requested != null && hasPremium && !useDefault && !outfit) {
+            await editComponentsV2(interaction, null, ["That outfit is not saved for your selected character."], []);
+            return;
+          }
+          const displayName = outfit?.displayName || current.name;
           const webhookOptions = {
             content: outboundContent,
-            username: character.name,
-            avatarURL: character.avatarUrl || undefined,
+            username: displayName,
+            avatarURL: outfit?.avatarUrl || current.avatarUrl || undefined,
             allowedMentions: replyPingTargetId
               ? { parse: [], users: [replyPingTargetId] }
               : { parse: [] }
@@ -8090,6 +8216,21 @@ client.on("interactionCreate", async (interaction) => {
             12000,
             "Webhook send timed out."
           );
+
+          let outfitSaveFailed = false;
+          if (requested != null && (useDefault || outfit)) {
+            const latest = getCharacterById(selectedCharacterId, interaction.guildId);
+            if (latest && getAssignedUserId(interaction.guildId, selectedCharacterId) === interaction.user.id &&
+                (useDefault || latest.outfits?.includes(outfit))) {
+              try {
+                saveOutfits(latest, latest.outfits ?? [], outfit?.name ?? null);
+              } catch {
+                outfitSaveFailed = true;
+              }
+            } else {
+              outfitSaveFailed = true;
+            }
+          }
 
           const autoDeleteChannelId = channel.isThread() ? channel.parentId : channel.id;
           if (autoDeleteChannelId && webhookInfo?.id && webhookInfo?.token) {
@@ -8136,13 +8277,15 @@ client.on("interactionCreate", async (interaction) => {
             interaction,
             null,
             [
-              `Sent as **${character.name}**.` +
+              `Sent as **${displayName}**.` +
                 (webhookInfo.fallbackReuse
                   ? " Reused an existing webhook in this channel because the webhook limit is full."
                   : "") +
-                sentMessageIdSuffix
+                sentMessageIdSuffix,
+              outfitBlocked ? "You need an active Premium subscription to equip saved outfits. Your message was sent using your character’s default look." : "",
+              outfitSaveFailed ? "Your message was sent, but the outfit selection could not be saved." : ""
             ],
-            []
+            outfitBlocked ? premiumOutfitComponents : []
           );
         } catch (error) {
           console.error("Webhook send error:", error);
