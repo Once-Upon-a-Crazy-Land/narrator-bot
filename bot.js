@@ -710,6 +710,21 @@ async function initEconomyDatabase() {
   economyDb.pragma("synchronous = FULL");
 
   economyDb.exec(`
+    CREATE TABLE IF NOT EXISTS news_channels (
+      guild_id TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL,
+      webhook_id TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS news_posts (
+      id TEXT PRIMARY KEY,
+      content TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS news_deliveries (
+      post_id TEXT NOT NULL,
+      guild_id TEXT NOT NULL,
+      result TEXT NOT NULL,
+      PRIMARY KEY (post_id, guild_id)
+    );
     CREATE TABLE IF NOT EXISTS user_points (
       scope_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
@@ -2170,6 +2185,15 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     ]
   });
 
+  const newsChannel = getNewsChannel(guildId);
+  components.push(
+    { type: 10, content: `### Narrator News\n${BULLET_EMOJI_RAW} Current: ${formatChannel(newsChannel?.channel_id, "disabled")}` },
+    { type: 1, components: [
+      { type: 2, style: 2, label: "Set News Channel", custom_id: "news-setup:select" },
+      { type: 2, style: 2, label: "Send Test", custom_id: "news-setup:test", disabled: !newsChannel },
+      { type: 2, style: 4, label: "Disable News", custom_id: "news-setup:disable", disabled: !newsChannel }
+    ] }
+  );
   return [{ type: 17, components }];
 }
 
@@ -5033,6 +5057,144 @@ async function registerCommands() {
     console.error("Failed to register commands:", error);
     throw error;
   }
+
+  if (NEWS_GUILD_ID && NEWS_OWNER_ID) {
+    await rest.post(Routes.applicationGuildCommands(clientId, NEWS_GUILD_ID), {
+      body: { name: NEWS_COMMAND, type: 3 }
+    });
+  }
+}
+
+const NEWS_GUILD_ID = process.env.NEWS_GUILD_ID?.trim();
+const NEWS_OWNER_ID = process.env.NEWS_OWNER_ID?.trim();
+const NEWS_COMMAND = "Publish Narrator News";
+const newsDrafts = new Map();
+
+function getNewsChannel(guildId) {
+  return economyDb.prepare("SELECT * FROM news_channels WHERE guild_id = ?").get(guildId);
+}
+
+async function sendNews(destination, content) {
+  const webhook = await client.fetchWebhook(destination.webhook_id);
+  if (webhook.guildId !== destination.guild_id || webhook.channelId !== destination.channel_id) {
+    throw new Error("News webhook moved away from its configured channel.");
+  }
+  return webhook.send({ content, allowedMentions: { parse: [] } });
+}
+
+async function handleNewsInteraction(interaction) {
+  const action = interaction.customId;
+  if (action?.startsWith("news-setup:")) {
+    if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+      await interaction.reply({ content: "You do not have permission to manage setup.", flags: 64 });
+      return true;
+    }
+    if (action === "news-setup:select") {
+      await interaction.reply({
+        content: "Choose where Narrator should post news.",
+        flags: 64,
+        components: [{ type: 1, components: [{
+          type: 8, custom_id: "news-setup:save", channel_types: [0, 5]
+        }] }]
+      });
+      return true;
+    }
+
+    await interaction.deferReply({ flags: 64 });
+    const previous = getNewsChannel(interaction.guildId);
+    let status;
+    if (action === "news-setup:save") {
+      const channel = interaction.channels.first();
+      if (!channel || channel.guildId !== interaction.guildId || ![0, 5].includes(channel.type)) {
+        await interaction.editReply("Choose a text or announcement channel in this server.");
+        return true;
+      }
+      try {
+        const webhooks = await channel.fetchWebhooks();
+        const webhook = webhooks.find((entry) => entry.owner?.id === client.user.id && entry.name === "Narrator News")
+          || await channel.createWebhook({ name: "Narrator News" });
+        economyDb.prepare("INSERT OR REPLACE INTO news_channels VALUES (?, ?, ?)")
+          .run(interaction.guildId, channel.id, webhook.id);
+        status = "News channel saved.";
+      } catch {
+        status = "Could not configure news. Check that Narrator has Manage Webhooks in that channel.";
+      }
+    } else if (action === "news-setup:disable") {
+      economyDb.prepare("DELETE FROM news_channels WHERE guild_id = ?").run(interaction.guildId);
+      status = "News disabled.";
+    } else {
+      try {
+        if (!previous) throw new Error("News disabled.");
+        await sendNews(previous, "This is a test from Narrator News.");
+        status = "Test news message sent.";
+      } catch {
+        status = "Test failed. Use Set News Channel to reconnect the webhook.";
+      }
+    }
+    await interaction.editReply({ flags: 32768, components: buildSetupAdminPanel(interaction.guildId, status) });
+    return true;
+  }
+
+  const isNewsCommand = interaction.isMessageContextMenuCommand() && interaction.commandName === NEWS_COMMAND;
+  if (!isNewsCommand && !action?.startsWith("news-publish:")) return false;
+  if (!NEWS_GUILD_ID || interaction.guildId !== NEWS_GUILD_ID || interaction.user.id !== NEWS_OWNER_ID) {
+    await interaction.reply({ content: "This action is restricted to the news publisher.", flags: 64 });
+    return true;
+  }
+
+  if (isNewsCommand) {
+    const content = interaction.targetMessage.content;
+    if (!content?.trim() || content.length > 2000 || interaction.targetMessage.attachments.size) {
+      await interaction.reply({ content: "Choose a text-only message with 1–2,000 characters.", flags: 64 });
+      return true;
+    }
+    const destinations = economyDb.prepare("SELECT * FROM news_channels").all();
+    const count = destinations.length;
+    const id = interaction.id;
+    newsDrafts.set(id, { content, destinations });
+    setTimeout(() => newsDrafts.delete(id), 10 * 60 * 1000).unref();
+    await interaction.reply({
+      content,
+      flags: 64,
+      allowedMentions: { parse: [] },
+      components: [{ type: 1, components: [{
+        type: 2, style: 4, label: `Publish to ${count} subscribed servers`, custom_id: `news-publish:${id}`,
+        disabled: count === 0
+      }] }]
+    });
+    return true;
+  }
+
+  const id = action.slice("news-publish:".length);
+  const draft = newsDrafts.get(id);
+  if (!draft) {
+    await interaction.reply({ content: "This preview has expired or was already used.", flags: 64 });
+    return true;
+  }
+  newsDrafts.delete(id);
+  const { content, destinations } = draft;
+  await interaction.update({ content: "Sending news…", components: [] });
+  economyDb.prepare("INSERT INTO news_posts VALUES (?, ?)").run(id, content);
+  const record = economyDb.prepare("INSERT INTO news_deliveries VALUES (?, ?, ?)");
+  let sent = 0;
+  for (const destination of destinations) {
+    const current = getNewsChannel(destination.guild_id);
+    if (current?.webhook_id !== destination.webhook_id) {
+      record.run(id, destination.guild_id, "skipped");
+      continue;
+    }
+    let result;
+    try {
+      const message = await sendNews(destination, content);
+      result = message.id;
+      sent += 1;
+    } catch (error) {
+      result = `failed:${error.code || "unknown"}`;
+    }
+    record.run(id, destination.guild_id, result);
+  }
+  await interaction.editReply(`News sent to ${sent} of ${destinations.length} subscribed servers.`);
+  return true;
 }
 
 async function ensureWebhook(channel, character, botMember, retryDepth = 0) {
@@ -5740,6 +5902,7 @@ client.on("interactionCreate", async (interaction) => {
 
   const clearAckGuard = installInteractionAckGuard(interaction);
   try {
+    if (await handleNewsInteraction(interaction)) return;
     syncPremiumSlotsFromInteraction(interaction);
 
     const buildLeaderboardView = async (guild, type, limit, offset) => {
