@@ -3062,7 +3062,7 @@ async function distributePremiumDailyRewards() {
     }
 
     let rewardCount = 0;
-    const rewardedPremiumUsers = [];
+    const rewardedPremiumUsers = new Map();
 
     const candidates = new Set(entitlementSlotBonusByScopeUser.keys());
     for (const userId of PREMIUM_USER_IDS) {
@@ -3087,13 +3087,13 @@ async function distributePremiumDailyRewards() {
     for (const { guildId, userId, member } of recipients) {
       addPoints(guildId, userId, PREMIUM_DAILY_POINTS);
       rewardCount++;
-      rewardedPremiumUsers.push(member.user?.tag || member.displayName || userId);
+      rewardedPremiumUsers.set(userId, member.user?.tag || member.displayName || userId);
     }
 
     writeJson(PREMIUM_DAILY_REWARD_PATH, { lastDate: today });
     if (rewardCount > 0) {
       console.log(
-        `[Premium Daily] Awarded ${PREMIUM_DAILY_POINTS} points to ${rewardCount} premium user(s): ${rewardedPremiumUsers.join(", ")}.`
+        `[Premium Daily] Awarded ${PREMIUM_DAILY_POINTS} points per server to ${rewardedPremiumUsers.size} premium user(s) across ${rewardCount} server award(s): ${[...rewardedPremiumUsers.values()].join(", ")}.`
       );
     }
   } catch (error) {
