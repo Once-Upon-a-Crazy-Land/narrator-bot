@@ -2529,6 +2529,15 @@ function saveOutfits(character, outfits, equippedOutfit) {
   characters[index] = updated;
 }
 
+const FREE_OUTFIT_CHARACTER_LIMIT = 3;
+
+function hasFreeOutfitSlot(guildId, userId, character) {
+  const dressedCharacters = getOwnedCharacters(userId, guildId).filter((owned) => owned.outfits?.length);
+  return character.outfits?.length
+    ? dressedCharacters.slice(0, FREE_OUTFIT_CHARACTER_LIMIT).includes(character)
+    : dressedCharacters.length < FREE_OUTFIT_CHARACTER_LIMIT;
+}
+
 function findOutfit(character, name) {
   return character.outfits?.find((outfit) => outfit.name.toLowerCase() === name?.toLowerCase());
 }
@@ -7777,8 +7786,10 @@ client.on("interactionCreate", async (interaction) => {
         const isDefault = name.toLowerCase() === "default";
         const outfits = character.outfits ?? [];
         const existing = findOutfit(character, name);
-        if ((action === "save" || (action === "equip" && !isDefault)) && !getPremiumSlotBonus(guildId, user.id)) {
-          await respond("You need an active Premium subscription to save or equip outfits.", premiumOutfitComponents);
+        const needsOutfitSlot = action === "save" || (action === "equip" && !isDefault && existing);
+        if (needsOutfitSlot && !getPremiumSlotBonus(guildId, user.id) &&
+            (!hasFreeOutfitSlot(guildId, user.id, character) || (outfits.length > 0 && existing !== outfits[0]))) {
+          await respond("Free users can use one outfit each on up to three characters per server. Get Premium for more outfits.", premiumOutfitComponents);
           return;
         }
 
@@ -8181,17 +8192,20 @@ client.on("interactionCreate", async (interaction) => {
           const requested = interaction.options.getString("outfit")?.trim();
           const useDefault = requested?.toLowerCase() === "default";
           const hasPremium = getPremiumSlotBonus(interaction.guildId, interaction.user.id) > 0;
-          const outfitBlocked = requested != null && !useDefault && !hasPremium;
           const current = getCharacterById(selectedCharacterId, interaction.guildId);
           if (!current || getAssignedUserId(interaction.guildId, selectedCharacterId) !== interaction.user.id) {
             await editComponentsV2(interaction, null, ["You are no longer assigned to that character."], []);
             return;
           }
-          const outfit = hasPremium && !useDefault ? findOutfit(current, requested ?? current.equippedOutfit) : null;
-          if (requested != null && hasPremium && !useDefault && !outfit) {
+          const selectedOutfit = useDefault ? null : findOutfit(current, requested ?? current.equippedOutfit);
+          if (requested != null && !useDefault && !selectedOutfit) {
             await editComponentsV2(interaction, null, ["That outfit is not saved for your selected character."], []);
             return;
           }
+          const canUseOutfit = hasPremium || (selectedOutfit === current.outfits?.[0] &&
+            hasFreeOutfitSlot(interaction.guildId, interaction.user.id, current));
+          const outfit = canUseOutfit ? selectedOutfit : null;
+          const outfitBlocked = requested != null && selectedOutfit && !canUseOutfit;
           const displayName = outfit?.displayName || current.name;
           const webhookOptions = {
             content: outboundContent,
@@ -8282,7 +8296,7 @@ client.on("interactionCreate", async (interaction) => {
                   ? " Reused an existing webhook in this channel because the webhook limit is full."
                   : "") +
                 sentMessageIdSuffix,
-              outfitBlocked ? "You need an active Premium subscription to equip saved outfits. Your message was sent using your character’s default look." : "",
+              outfitBlocked ? "This outfit requires Premium. Free users can use one outfit each on up to three characters per server. Your message was sent using your character’s default look." : "",
               outfitSaveFailed ? "Your message was sent, but the outfit selection could not be saved." : ""
             ],
             outfitBlocked ? premiumOutfitComponents : []
