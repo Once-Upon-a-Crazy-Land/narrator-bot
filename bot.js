@@ -5074,12 +5074,20 @@ function getNewsChannel(guildId) {
   return economyDb.prepare("SELECT * FROM news_channels WHERE guild_id = ?").get(guildId);
 }
 
+function buildNewsMessage(content) {
+  return {
+    flags: 32768,
+    components: buildComponentsBox("Narrator News", [content]),
+    allowedMentions: { parse: [] }
+  };
+}
+
 async function sendNews(destination, content) {
   const webhook = await client.fetchWebhook(destination.webhook_id);
   if (webhook.guildId !== destination.guild_id || webhook.channelId !== destination.channel_id) {
     throw new Error("News webhook moved away from its configured channel.");
   }
-  return webhook.send({ content, allowedMentions: { parse: [] } });
+  return webhook.send({ ...buildNewsMessage(content), withComponents: true });
 }
 
 async function handleNewsInteraction(interaction) {
@@ -5153,11 +5161,11 @@ async function handleNewsInteraction(interaction) {
     const id = interaction.id;
     newsDrafts.set(id, { content, destinations });
     setTimeout(() => newsDrafts.delete(id), 10 * 60 * 1000).unref();
+    const preview = buildNewsMessage(content);
     await interaction.reply({
-      content,
-      flags: 64,
-      allowedMentions: { parse: [] },
-      components: [{ type: 1, components: [{
+      ...preview,
+      flags: preview.flags | 64,
+      components: [...preview.components, { type: 1, components: [{
         type: 2, style: 4, label: `Publish to ${count} subscribed servers`, custom_id: `news-publish:${id}`,
         disabled: count === 0
       }] }]
@@ -5173,7 +5181,7 @@ async function handleNewsInteraction(interaction) {
   }
   newsDrafts.delete(id);
   const { content, destinations } = draft;
-  await interaction.update({ content: "Sending news…", components: [] });
+  await interaction.update({ components: buildComponentsBox("Narrator News", ["Sending news…"]) });
   economyDb.prepare("INSERT INTO news_posts VALUES (?, ?)").run(id, content);
   const record = economyDb.prepare("INSERT INTO news_deliveries VALUES (?, ?, ?)");
   let sent = 0;
@@ -5193,7 +5201,11 @@ async function handleNewsInteraction(interaction) {
     }
     record.run(id, destination.guild_id, result);
   }
-  await interaction.editReply(`News sent to ${sent} of ${destinations.length} subscribed servers.`);
+  await interaction.editReply({
+    components: buildComponentsBox("Narrator News", [
+      `News sent to ${sent} of ${destinations.length} subscribed servers.`
+    ])
+  });
   return true;
 }
 
