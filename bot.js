@@ -1,4 +1,5 @@
 import fs from "fs";
+import { createHash } from "node:crypto";
 import http from "http";
 import path from "path";
 import dotenv from "dotenv";
@@ -2903,6 +2904,45 @@ function isCharacterSlotLocked(guildId, userId, characterId) {
   // Characters beyond the slot limit (sorted by stable array insertion order) are locked.
   const index = ownedChars.findIndex((c) => c.id === characterId);
   return index >= slotLimit;
+}
+
+function characterPickerValue(characterId) {
+  return createHash("sha256").update(characterId).digest("hex");
+}
+
+function buildCharacterPicker(guildId, userId, customId, placeholder) {
+  const ownedCharacters = getOwnedCharacters(userId, guildId);
+  const available = ownedCharacters.slice(0, getUserCharacterSlotLimit(guildId, userId));
+  if (!available.length) return [];
+
+  return [{
+    type: 1,
+    components: [{
+      type: 3,
+      custom_id: customId,
+      placeholder,
+      options: available.map((character) => ({
+        label: character.name.slice(0, 100),
+        description: character.id.slice(0, 100),
+        value: characterPickerValue(character.id)
+      }))
+    }]
+  }];
+}
+
+function getAvailableCharacter(guildId, userId, characterId) {
+  if (!characterId ||
+      getAssignedUserId(guildId, characterId) !== userId ||
+      isCharacterSlotLocked(guildId, userId, characterId)) {
+    return null;
+  }
+  return getCharacterById(characterId, guildId);
+}
+
+function resolveCharacterPickerChoice(guildId, userId, value) {
+  const character = getOwnedCharacters(userId, guildId)
+    .find(({ id }) => characterPickerValue(id) === value);
+  return getAvailableCharacter(guildId, userId, character?.id);
 }
 
 function canAssignCharacterToUser(guildId, userId, characterId) {
@@ -6043,6 +6083,25 @@ client.on("interactionCreate", async (interaction) => {
     if (await handleNewsInteraction(interaction)) return;
     syncPremiumSlotsFromInteraction(interaction);
 
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith("character:switch:")) {
+      const ownerId = interaction.customId.slice("character:switch:".length);
+      if (interaction.user.id !== ownerId) {
+        await interaction.reply({ content: "Use `/character list` to switch your own character.", ephemeral: true });
+        return;
+      }
+
+      const character = resolveCharacterPickerChoice(interaction.guildId, ownerId, interaction.values[0]);
+      if (!character) {
+        await interaction.reply({ content: "That character is no longer available. Run `/character list` to refresh your choices.", ephemeral: true });
+        return;
+      }
+
+      setSelectedCharacterId(interaction.guildId, ownerId, character.id);
+      saveSelections();
+      await interaction.reply({ content: `Now using **${character.name}** for \`/say\`.`, ephemeral: true });
+      return;
+    }
+
     const buildLeaderboardView = async (guild, type, limit, offset) => {
       const safeLimit = Math.max(1, Math.min(25, Number(limit) || 10));
       const safeOffset = Math.max(0, Number(offset) || 0);
@@ -6794,7 +6853,9 @@ client.on("interactionCreate", async (interaction) => {
             await replyComponentsV2(
               interaction,
               "Character List",
-              [`${userDesc} don't have any assigned characters.`],
+              [targetUserId === interaction.user.id
+                ? "You have no assigned characters. Ask a server admin to use `/character assign`."
+                : `${userDesc} has no assigned characters. Use \`/character assign\` to assign one.`],
               [],
               { ephemeral: true }
             );
@@ -6812,6 +6873,19 @@ client.on("interactionCreate", async (interaction) => {
               spacing: 1
             }
           ];
+
+          const viewingOwnCharacters = targetUserId === interaction.user.id;
+          if (viewingOwnCharacters) {
+            const selected = getAvailableCharacter(
+              interaction.guildId,
+              targetUserId,
+              getSelectedCharacterId(interaction.guildId, targetUserId)
+            );
+            components.splice(1, 0, {
+              type: 10,
+              content: `**Active character when opened:** ${selected ? selected.name : "None"}`
+            });
+          }
 
           const slotLimit = getUserCharacterSlotLimit(interaction.guildId, targetUserId);
           const ownedCount = ownedCharacters.length;
@@ -6833,6 +6907,12 @@ client.on("interactionCreate", async (interaction) => {
               type: 10,
               content: `${UNSUCCESSFUL_EMOJI_RAW} **${ownedCount - slotLimit}** character(s) are locked. Re-subscribe or unassign characters to free slots.`
             });
+          }
+
+          if (viewingOwnCharacters) {
+            components.push(...buildCharacterPicker(
+              interaction.guildId, targetUserId, `character:switch:${targetUserId}`, "Switch active character"
+            ));
           }
 
           await interaction.reply({
@@ -7964,52 +8044,52 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        const selectedCharacterId = getSelectedCharacterId(interaction.guildId, interaction.user.id);
-        if (!selectedCharacterId) {
-          await editComponentsV2(
-            interaction,
-            null,
-            ["Select a character first with /character pick."],
-            []
-          );
-          return;
-        }
-
-        if (getAssignedUserId(interaction.guildId, selectedCharacterId) !== interaction.user.id) {
-          await editComponentsV2(
-            interaction,
-            null,
-            ["You are not assigned to that character."],
-            []
-          );
-          return;
-        }
-
-        if (isCharacterSlotLocked(interaction.guildId, interaction.user.id, selectedCharacterId)) {
-          const slotLimit = getUserCharacterSlotLimit(interaction.guildId, interaction.user.id);
-          const ownedCount = getOwnedCharacterCount(interaction.guildId, interaction.user.id);
-          await editComponentsV2(
-            interaction,
-            null,
-            [
-              `${UNSUCCESSFUL_EMOJI_RAW} This character is in a locked subscription slot.`,
-              `You have **${ownedCount}** characters but only **${slotLimit}** active slot(s).`,
-              "Re-subscribe to unlock all slots, or unassign characters until you're within your base limit."
-            ],
-            []
-          );
-          return;
-        }
-
-        const character = getCharacterById(selectedCharacterId, interaction.guildId);
+        const { guildId, user } = interaction;
+        let selectedCharacterId = getSelectedCharacterId(guildId, user.id);
+        let character = getAvailableCharacter(guildId, user.id, selectedCharacterId);
         if (!character) {
+          const pickerId = `say:pick:${interaction.id}`;
+          const picker = buildCharacterPicker(guildId, user.id, pickerId, "Choose a character and send");
+          if (!picker.length) {
+            const hasCharacters = getOwnedCharacters(user.id, guildId).length > 0;
+            await editComponentsV2(interaction, null, [hasCharacters
+              ? "Your assigned characters are in locked slots. Check `/character list` for details."
+              : "You have no assigned characters. Ask a server admin to use `/character assign`."], []);
+            return;
+          }
+
           await editComponentsV2(
             interaction,
-            null,
-            ["Selected character no longer exists."],
-            []
+            "Choose a Character",
+            ["Choose who should send your message. Your choice also becomes your active character.", "This picker expires in 2 minutes."],
+            picker
           );
-          return;
+          const prompt = await interaction.fetchReply();
+          const choice = await prompt.awaitMessageComponent({
+            filter: (component) => component.isStringSelectMenu() &&
+              component.customId === pickerId && component.user.id === user.id,
+            time: 120_000
+          }).catch(() => null);
+          if (!choice) {
+            await editComponentsV2(interaction, null, ["The character picker expired. Run `/say` again to send your message."], []);
+            return;
+          }
+
+          await choice.deferUpdate();
+          if (!canUseRoleplayCommands(choice) || !isSayAllowedInChannel(guildId, channel)) {
+            await editComponentsV2(interaction, null, ["You can no longer use `/say` in this channel."], []);
+            return;
+          }
+
+          character = resolveCharacterPickerChoice(guildId, user.id, choice.values[0]);
+          if (!character) {
+            await editComponentsV2(interaction, null, ["That character is no longer available. Run `/say` again to choose another."], []);
+            return;
+          }
+
+          selectedCharacterId = character.id;
+          setSelectedCharacterId(guildId, user.id, selectedCharacterId);
+          saveSelections();
         }
 
         const rawMessage = interaction.options.getString("message", true);
