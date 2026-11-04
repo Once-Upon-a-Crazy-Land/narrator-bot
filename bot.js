@@ -719,6 +719,9 @@ async function initEconomyDatabase() {
       id TEXT PRIMARY KEY,
       content TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS news_opt_outs (
+      guild_id TEXT PRIMARY KEY
+    );
     CREATE TABLE IF NOT EXISTS news_deliveries (
       post_id TEXT NOT NULL,
       guild_id TEXT NOT NULL,
@@ -2187,11 +2190,11 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
 
   const newsChannel = getNewsChannel(guildId);
   components.push(
-    { type: 10, content: `### Narrator News\n${BULLET_EMOJI_RAW} Current: ${formatChannel(newsChannel?.channel_id, "disabled")}` },
+    { type: 10, content: `### Narrator News\n${BULLET_EMOJI_RAW} Current: ${formatChannel(newsChannel?.channel_id, isNewsDisabled(guildId) ? "disabled" : "automatic")}` },
     { type: 1, components: [
       { type: 2, style: 2, label: "Set News Channel", custom_id: "news-setup:select" },
       { type: 2, style: 2, label: "Send Test", custom_id: "news-setup:test", disabled: !newsChannel },
-      { type: 2, style: 4, label: "Disable News", custom_id: "news-setup:disable", disabled: !newsChannel }
+      { type: 2, style: 4, label: "Disable News", custom_id: "news-setup:disable", disabled: isNewsDisabled(guildId) }
     ] }
   );
   return [{ type: 17, components }];
@@ -5139,6 +5142,33 @@ function getNewsChannel(guildId) {
   return economyDb.prepare("SELECT * FROM news_channels WHERE guild_id = ?").get(guildId);
 }
 
+function isNewsDisabled(guildId) {
+  return !!economyDb.prepare("SELECT 1 FROM news_opt_outs WHERE guild_id = ?").get(guildId);
+}
+
+function pickNewsChannel(guild) {
+  if (!guild?.available || !guild.members.me) return null;
+  const channels = [...guild.channels.cache.values()]
+    .filter((channel) => [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)
+      && channel.permissionsFor(guild.members.me)?.has([
+        PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageWebhooks
+      ]))
+    .sort((a, b) => a.rawPosition - b.rawPosition || a.id.localeCompare(b.id));
+  const publicNames = ["bot-news", "bot-updates", "narrator-news", "narrator-updates"];
+  const privateNames = ["mod-news", "moderator-news", "mod-chat", "moderator-chat", "staff-chat", "staff"];
+  return channels.find((channel) => publicNames.includes(channel.name.toLowerCase())
+    && channel.permissionsFor(guild.roles.everyone)?.has(PermissionFlagsBits.ViewChannel))
+    ?? channels.find((channel) => privateNames.includes(channel.name.toLowerCase())
+      && channel.permissionsFor(guild.roles.everyone)?.has(PermissionFlagsBits.ViewChannel) === false)
+    ?? null;
+}
+
+async function getOrCreateNewsWebhook(channel) {
+  const webhooks = await channel.fetchWebhooks();
+  return webhooks.find((entry) => entry.owner?.id === client.user.id && entry.name === "Narrator News")
+    || await channel.createWebhook({ name: "Narrator News" });
+}
+
 function buildNewsMessage(content) {
   return {
     flags: 32768,
@@ -5183,17 +5213,21 @@ async function handleNewsInteraction(interaction) {
         return true;
       }
       try {
-        const webhooks = await channel.fetchWebhooks();
-        const webhook = webhooks.find((entry) => entry.owner?.id === client.user.id && entry.name === "Narrator News")
-          || await channel.createWebhook({ name: "Narrator News" });
-        economyDb.prepare("INSERT OR REPLACE INTO news_channels VALUES (?, ?, ?)")
-          .run(interaction.guildId, channel.id, webhook.id);
+        const webhook = await getOrCreateNewsWebhook(channel);
+        economyDb.transaction(() => {
+          economyDb.prepare("INSERT OR REPLACE INTO news_channels VALUES (?, ?, ?)")
+            .run(interaction.guildId, channel.id, webhook.id);
+          economyDb.prepare("DELETE FROM news_opt_outs WHERE guild_id = ?").run(interaction.guildId);
+        })();
         status = "News channel saved.";
       } catch {
         status = "Could not configure news. Check that Narrator has Manage Webhooks in that channel.";
       }
     } else if (action === "news-setup:disable") {
-      economyDb.prepare("DELETE FROM news_channels WHERE guild_id = ?").run(interaction.guildId);
+      economyDb.transaction(() => {
+        economyDb.prepare("INSERT OR IGNORE INTO news_opt_outs VALUES (?)").run(interaction.guildId);
+        economyDb.prepare("DELETE FROM news_channels WHERE guild_id = ?").run(interaction.guildId);
+      })();
       status = "News disabled.";
     } else {
       try {
@@ -5221,7 +5255,21 @@ async function handleNewsInteraction(interaction) {
       await interaction.reply({ content: "Choose a text-only message with 1–2,000 characters.", flags: 64 });
       return true;
     }
-    const destinations = economyDb.prepare("SELECT * FROM news_channels").all();
+    const configured = new Map(economyDb.prepare("SELECT * FROM news_channels").all()
+      .map((destination) => [destination.guild_id, destination]));
+    const optedOut = new Set(economyDb.prepare("SELECT guild_id FROM news_opt_outs").all()
+      .map(({ guild_id }) => guild_id));
+    const destinations = [];
+    for (const guild of client.guilds.cache.values()) {
+      if (!guild.available || optedOut.has(guild.id)) continue;
+      const saved = configured.get(guild.id);
+      if (saved) {
+        destinations.push(saved);
+        continue;
+      }
+      const channel = pickNewsChannel(guild);
+      if (channel) destinations.push({ guild_id: guild.id, channel_id: channel.id });
+    }
     const count = destinations.length;
     const id = interaction.id;
     newsDrafts.set(id, { content, destinations });
@@ -5231,7 +5279,7 @@ async function handleNewsInteraction(interaction) {
       ...preview,
       flags: preview.flags | 64,
       components: [...preview.components, { type: 1, components: [{
-        type: 2, style: 4, label: `Publish to ${count} subscribed servers`, custom_id: `news-publish:${id}`,
+        type: 2, style: 4, label: `Publish to ${count} servers`, custom_id: `news-publish:${id}`,
         disabled: count === 0
       }] }]
     });
@@ -5252,13 +5300,28 @@ async function handleNewsInteraction(interaction) {
   let sent = 0;
   for (const destination of destinations) {
     const current = getNewsChannel(destination.guild_id);
-    if (current?.webhook_id !== destination.webhook_id) {
+    const guild = client.guilds.cache.get(destination.guild_id);
+    const channel = destination.webhook_id ? null : pickNewsChannel(guild);
+    if (!guild?.available || isNewsDisabled(destination.guild_id)
+      || current?.webhook_id !== destination.webhook_id
+      || (!destination.webhook_id && channel?.id !== destination.channel_id)) {
       record.run(id, destination.guild_id, "skipped");
       continue;
     }
     let result;
     try {
-      const message = await sendNews(destination, content);
+      let message;
+      if (channel) {
+        const webhook = await getOrCreateNewsWebhook(channel);
+        if (isNewsDisabled(guild.id) || getNewsChannel(guild.id)
+          || pickNewsChannel(guild)?.id !== channel.id) {
+          record.run(id, guild.id, "skipped");
+          continue;
+        }
+        message = await webhook.send({ ...buildNewsMessage(content), withComponents: true });
+      } else {
+        message = await sendNews(destination, content);
+      }
       result = message.id;
       sent += 1;
     } catch (error) {
@@ -5268,7 +5331,7 @@ async function handleNewsInteraction(interaction) {
   }
   await interaction.editReply({
     components: buildComponentsBox("Narrator News", [
-      `News sent to ${sent} of ${destinations.length} subscribed servers.`
+      `News sent to ${sent} of ${destinations.length} servers.`
     ])
   });
   return true;
