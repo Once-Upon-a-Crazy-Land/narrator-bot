@@ -16,6 +16,7 @@ import {
   ChannelType,
   Client,
   GatewayIntentBits,
+  MessageFlags,
   ModalBuilder,
   PermissionFlagsBits,
   REST,
@@ -2261,9 +2262,9 @@ function formatRoleplayMessage(content) {
 
 async function replyComponentsV2(interaction, title, lines, extraComponents, options = {}) {
   const replyOptions = {
-    flags: 32768,
     components: buildComponentsBox(title, lines, extraComponents),
-    ...options
+    ...options,
+    flags: MessageFlags.IsComponentsV2 | (options.flags ?? 0)
   };
   delete replyOptions.accentColor;
   const fallbackText = [title, ...(Array.isArray(lines) ? lines : [])]
@@ -2273,7 +2274,7 @@ async function replyComponentsV2(interaction, title, lines, extraComponents, opt
   const sendFallback = async () => {
     const fallbackPayload = {
       content: fallbackText || "Done.",
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     };
 
     if (!interaction.replied && !interaction.deferred) {
@@ -2296,19 +2297,11 @@ async function replyComponentsV2(interaction, title, lines, extraComponents, opt
     }
 
     if (interaction.deferred && !interaction.replied) {
-      const editPayload = { ...replyOptions };
-      delete editPayload.flags;
-      delete editPayload.ephemeral;
-      await interaction.editReply(editPayload);
+      await interaction.editReply(toEditReplyPayload(replyOptions));
       return;
     }
 
-    const followUpPayload = { ...replyOptions };
-    if (followUpPayload.flags === 32768 && followUpPayload.ephemeral === undefined) {
-      followUpPayload.ephemeral = true;
-    }
-    delete followUpPayload.flags;
-    await interaction.followUp(followUpPayload);
+    await interaction.followUp(toFollowUpPayload(replyOptions));
   } catch (error) {
     console.error("replyComponentsV2 failed, using text fallback:", error);
     await sendFallback();
@@ -2337,11 +2330,11 @@ async function editComponentsV2(interaction, title, lines, extraComponents, opti
     }
 
     if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({ content: fallbackText || "Done.", ephemeral: true });
+      await interaction.reply({ content: fallbackText || "Done.", flags: MessageFlags.Ephemeral });
       return;
     }
 
-    await interaction.followUp({ content: fallbackText || "Done.", ephemeral: true });
+    await interaction.followUp({ content: fallbackText || "Done.", flags: MessageFlags.Ephemeral });
   }
 }
 
@@ -2351,7 +2344,7 @@ async function acknowledgeInteractionSilently(interaction) {
     if (interaction.replied || interaction.deferred) {
       return;
     }
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await interaction.deleteReply();
   } catch (error) {
     console.error("Silent ack failed:", error);
@@ -2370,17 +2363,17 @@ function normalizeReplyPayload(options) {
 
 function toEditReplyPayload(options) {
   const payload = normalizeReplyPayload(options);
-  delete payload.ephemeral;
-  delete payload.flags;
+  if (typeof payload.flags === "number") {
+    payload.flags &= ~MessageFlags.Ephemeral;
+  }
   return payload;
 }
 
 function toFollowUpPayload(options) {
   const payload = normalizeReplyPayload(options);
-  if (payload.flags === 32768 && payload.ephemeral === undefined) {
-    payload.ephemeral = true;
+  if (payload.flags === MessageFlags.IsComponentsV2) {
+    payload.flags |= MessageFlags.Ephemeral;
   }
-  delete payload.flags;
   return payload;
 }
 
@@ -2410,10 +2403,10 @@ function installInteractionAckGuard(interaction, timeoutMs = 2000) {
     }
 
     if (interaction.replied) {
-      return originalFollowUp({ content: fallbackText, ephemeral: true });
+      return originalFollowUp({ content: fallbackText, flags: MessageFlags.Ephemeral });
     }
 
-    return originalReply({ content: fallbackText, ephemeral: true });
+    return originalReply({ content: fallbackText, flags: MessageFlags.Ephemeral });
   };
 
   interaction.reply = async (options) => {
@@ -2454,7 +2447,7 @@ function installInteractionAckGuard(interaction, timeoutMs = 2000) {
     }
 
     try {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } catch (error) {
       console.error("Interaction auto-defer failed:", error);
     }
@@ -6086,19 +6079,19 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith("character:switch:")) {
       const ownerId = interaction.customId.slice("character:switch:".length);
       if (interaction.user.id !== ownerId) {
-        await interaction.reply({ content: "Use `/character list` to switch your own character.", ephemeral: true });
+        await interaction.reply({ content: "Use `/character list` to switch your own character.", flags: MessageFlags.Ephemeral });
         return;
       }
 
       const character = resolveCharacterPickerChoice(interaction.guildId, ownerId, interaction.values[0]);
       if (!character) {
-        await interaction.reply({ content: "That character is no longer available. Run `/character list` to refresh your choices.", ephemeral: true });
+        await interaction.reply({ content: "That character is no longer available. Run `/character list` to refresh your choices.", flags: MessageFlags.Ephemeral });
         return;
       }
 
       setSelectedCharacterId(interaction.guildId, ownerId, character.id);
       saveSelections();
-      await interaction.reply({ content: `Now using **${character.name}** for \`/say\`.`, ephemeral: true });
+      await interaction.reply({ content: `Now using **${character.name}** for \`/say\`.`, flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -6334,7 +6327,7 @@ client.on("interactionCreate", async (interaction) => {
             "Admin",
             ["This command can only be used in a server."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -6345,7 +6338,7 @@ client.on("interactionCreate", async (interaction) => {
             "Admin",
             ["You do not have permission to use this command."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -6356,9 +6349,8 @@ client.on("interactionCreate", async (interaction) => {
         if (group === "user" && subcommand === "edit") {
           const targetUser = interaction.options.getUser("user", true);
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildAdminUserEditPanel(interaction.guildId, targetUser.id),
-            ephemeral: true
           });
           return;
         }
@@ -6368,7 +6360,7 @@ client.on("interactionCreate", async (interaction) => {
           "Admin",
           ["That admin subcommand is unavailable right now. Try `/help` and use the listed admin commands."],
           [],
-          { ephemeral: true }
+          { flags: MessageFlags.Ephemeral }
         );
         return;
       }
@@ -6383,7 +6375,7 @@ client.on("interactionCreate", async (interaction) => {
               "Assign Character",
               ["You do not have permission to assign characters."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6398,7 +6390,7 @@ client.on("interactionCreate", async (interaction) => {
               "Assign Character",
               ["You cannot assign characters to bot accounts."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6409,7 +6401,7 @@ client.on("interactionCreate", async (interaction) => {
               "Assign Character",
               ["That character does not exist."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6426,7 +6418,7 @@ client.on("interactionCreate", async (interaction) => {
                 "They can buy more from `/shop`."
               ],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6439,7 +6431,7 @@ client.on("interactionCreate", async (interaction) => {
             "Character Assigned",
             [`Assigned **${character.name}** to **${user.tag}**.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -6454,7 +6446,7 @@ client.on("interactionCreate", async (interaction) => {
               "Character Pick",
               [`Character with ID \`${characterId}\` does not exist.`],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6465,7 +6457,7 @@ client.on("interactionCreate", async (interaction) => {
               "Character Pick",
               ["You can only pick characters assigned to you."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6482,7 +6474,7 @@ client.on("interactionCreate", async (interaction) => {
                 "Re-subscribe to unlock all slots, or unassign characters until you're within your base limit."
               ],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6498,7 +6490,7 @@ client.on("interactionCreate", async (interaction) => {
               "Use `/say` to roleplay as this character."
             ],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -6510,7 +6502,7 @@ client.on("interactionCreate", async (interaction) => {
               "Clear Webhooks",
               ["You do not have permission to clear webhooks."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6557,7 +6549,7 @@ client.on("interactionCreate", async (interaction) => {
             "Webhooks Cleared",
             [`Deleted **${deletedCount}** webhooks and reloaded character data. New webhooks will be created on next \`/say\`.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
         }
 
@@ -6568,7 +6560,7 @@ client.on("interactionCreate", async (interaction) => {
               "Create Character",
               ["You do not have permission to create characters."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6595,7 +6587,7 @@ client.on("interactionCreate", async (interaction) => {
                 "❗ Invalid Age",
                 ["Age must be a number between 1 and 1000, 'Unknown', or '-' to remove."],
                 [],
-                { ephemeral: true }
+                { flags: MessageFlags.Ephemeral }
               );
               return;
             }
@@ -6612,7 +6604,7 @@ client.on("interactionCreate", async (interaction) => {
               "❗ Invalid Character ID",
               ["Character ID must be lowercase letters, numbers, hyphens, or underscores only."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6624,7 +6616,7 @@ client.on("interactionCreate", async (interaction) => {
               "❗ Character Exists",
               [`Character with ID \`${characterId}\` already exists.`],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6654,7 +6646,7 @@ client.on("interactionCreate", async (interaction) => {
             "Character Created",
             [`Created character **${characterName}** with ID \`${characterId}\`.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
         }
 
@@ -6681,7 +6673,7 @@ client.on("interactionCreate", async (interaction) => {
                 "❗ Invalid Age",
                 ["Age must be a number between 1 and 1000, 'Unknown', or '-' to remove."],
                 [],
-                { ephemeral: true }
+                { flags: MessageFlags.Ephemeral }
               );
               return;
             }
@@ -6698,7 +6690,7 @@ client.on("interactionCreate", async (interaction) => {
               "❗ Invalid Character ID",
               ["Character ID must be lowercase letters, numbers, hyphens, or underscores only."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6710,7 +6702,7 @@ client.on("interactionCreate", async (interaction) => {
               "❗ Character Exists",
               [`Character with ID \`${characterId}\` already exists.`],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6726,7 +6718,7 @@ client.on("interactionCreate", async (interaction) => {
                 "Buy another slot from `/shop` before creating and assigning a new character."
               ],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6760,7 +6752,7 @@ client.on("interactionCreate", async (interaction) => {
             "Character Created",
             [`Created character **${characterName}** with ID \`${characterId}\` and assigned it to you.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
         }
 
@@ -6776,7 +6768,7 @@ client.on("interactionCreate", async (interaction) => {
                 "Remove Character",
                 ["You do not have permission to remove character assignments from other users."],
                 [],
-                { ephemeral: true }
+                { flags: MessageFlags.Ephemeral }
               );
               return;
             }
@@ -6790,7 +6782,7 @@ client.on("interactionCreate", async (interaction) => {
               "Edit Character",
               [`Character with ID "${characterId}" does not exist.`],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6804,7 +6796,7 @@ client.on("interactionCreate", async (interaction) => {
               "Remove Character",
               [`Character **${character.name}** is not assigned to that user.`],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6824,7 +6816,7 @@ client.on("interactionCreate", async (interaction) => {
             "Assignment Removed",
             [`Removed assignment for **${character.name}** from ${targetName}.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
         }
 
@@ -6840,7 +6832,7 @@ client.on("interactionCreate", async (interaction) => {
                 "Character List",
                 ["You do not have permission to view other users' character assignments."],
                 [],
-                { ephemeral: true }
+                { flags: MessageFlags.Ephemeral }
               );
               return;
             }
@@ -6857,7 +6849,7 @@ client.on("interactionCreate", async (interaction) => {
                 ? "You have no assigned characters. Ask a server admin to use `/character assign`."
                 : `${userDesc} has no assigned characters. Use \`/character assign\` to assign one.`],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6937,7 +6929,7 @@ client.on("interactionCreate", async (interaction) => {
               "Edit Character",
               [`Character with ID "${characterId}" does not exist.`],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6952,7 +6944,7 @@ client.on("interactionCreate", async (interaction) => {
               "Edit Character",
               ["You do not have permission to edit this character."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -6999,9 +6991,8 @@ client.on("interactionCreate", async (interaction) => {
           ];
 
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: [{ type: 17, components: editBoxComponents }],
-            ephemeral: true
           });
         }
 
@@ -7012,7 +7003,7 @@ client.on("interactionCreate", async (interaction) => {
               "Change Character ID",
               ["You do not have permission to change character IDs."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7027,7 +7018,7 @@ client.on("interactionCreate", async (interaction) => {
               "Change Character ID",
               [`Character with ID \`${characterId}\` does not exist.`],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7038,7 +7029,7 @@ client.on("interactionCreate", async (interaction) => {
               "❗ Invalid Character ID",
               ["Character ID must be lowercase letters, numbers, hyphens, or underscores only."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7049,7 +7040,7 @@ client.on("interactionCreate", async (interaction) => {
               "Change Character ID",
               ["Old and new character IDs are the same."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7060,7 +7051,7 @@ client.on("interactionCreate", async (interaction) => {
               "❗ Character Exists",
               [`Character with ID \`${newCharacterId}\` already exists.`],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7072,7 +7063,7 @@ client.on("interactionCreate", async (interaction) => {
               "Change Character ID",
               ["Failed to change character ID. Try again."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7086,7 +7077,7 @@ client.on("interactionCreate", async (interaction) => {
               `${BULLET_EMOJI_RAW} New ID: \`${newCharacterId}\``
             ],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7202,7 +7193,7 @@ client.on("interactionCreate", async (interaction) => {
               "Delete Character",
               ["You do not have permission to delete characters."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7217,7 +7208,7 @@ client.on("interactionCreate", async (interaction) => {
               "Delete Character",
               [`Character with ID \`${characterId}\` does not exist.`],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7247,9 +7238,8 @@ client.on("interactionCreate", async (interaction) => {
           ];
 
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: [{ type: 17, components: deleteComponents }],
-            ephemeral: true
           });
 
           // Store character ID for button handler
@@ -7321,7 +7311,6 @@ client.on("interactionCreate", async (interaction) => {
               await i.update({
                 flags: 32768,
                 components: [{ type: 17, components: successComponents }],
-                ephemeral: true
               });
             } else if (i.customId === "cancel_delete") {
               const cancelComponents = [
@@ -7332,7 +7321,6 @@ client.on("interactionCreate", async (interaction) => {
               await i.update({
                 flags: 32768,
                 components: [{ type: 17, components: cancelComponents }],
-                ephemeral: true
               });
             }
           });
@@ -7347,7 +7335,6 @@ client.on("interactionCreate", async (interaction) => {
               await interaction.editReply({
                 flags: 32768,
                 components: [{ type: 17, components: timeoutComponents }],
-                ephemeral: true
               });
             }
           });
@@ -7362,7 +7349,7 @@ client.on("interactionCreate", async (interaction) => {
             "Lookup",
             ["This command can only be used in a server."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7376,7 +7363,7 @@ client.on("interactionCreate", async (interaction) => {
             "Lookup",
             ["That character does not exist in this server."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7394,7 +7381,7 @@ client.on("interactionCreate", async (interaction) => {
             ownerLine
           ],
           [],
-          { ephemeral: true }
+          { flags: MessageFlags.Ephemeral }
         );
         return;
       }
@@ -7449,7 +7436,7 @@ client.on("interactionCreate", async (interaction) => {
             `${interaction.user.username}`,
             profileLines.length > 0 ? profileLines : ["No profile information set."],
             [editButton],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7462,7 +7449,7 @@ client.on("interactionCreate", async (interaction) => {
             "Wallet",
             ["This command can only be used in a server."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7475,7 +7462,7 @@ client.on("interactionCreate", async (interaction) => {
             "Wallet",
             ["You do not have permission to view another user's wallet."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7514,7 +7501,7 @@ client.on("interactionCreate", async (interaction) => {
                 "Wallet",
                 ["You can only view character wallets for characters assigned to you."],
                 [],
-                { ephemeral: true }
+                { flags: MessageFlags.Ephemeral }
               );
               return;
             }
@@ -7536,7 +7523,7 @@ client.on("interactionCreate", async (interaction) => {
           "Wallet",
           lines,
           characterSectionComponents,
-          { ephemeral: true }
+          { flags: MessageFlags.Ephemeral }
         );
         return;
       }
@@ -7548,7 +7535,7 @@ client.on("interactionCreate", async (interaction) => {
             "Inventory",
             ["This command can only be used in a server."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7560,7 +7547,7 @@ client.on("interactionCreate", async (interaction) => {
             "Inventory",
             ["You do not have permission to view another user's inventory."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7580,7 +7567,7 @@ client.on("interactionCreate", async (interaction) => {
           `${targetUser.username}'s Inventory`,
           inventoryLines.length > 1 ? inventoryLines : ["No inventory items yet."],
           [],
-          { ephemeral: true }
+          { flags: MessageFlags.Ephemeral }
         );
         return;
       }
@@ -7592,7 +7579,7 @@ client.on("interactionCreate", async (interaction) => {
             "Use Item",
             ["This command can only be used in a server."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7606,7 +7593,7 @@ client.on("interactionCreate", async (interaction) => {
             "Use Item",
             ["That item does not exist."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7618,7 +7605,7 @@ client.on("interactionCreate", async (interaction) => {
             "Use Item",
             ["You don't have that item in your inventory."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7630,7 +7617,7 @@ client.on("interactionCreate", async (interaction) => {
             "Use Item",
             [`You must wait ${remaining} more seconds before using this item again.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7642,7 +7629,7 @@ client.on("interactionCreate", async (interaction) => {
             "Use Item",
             [result.reason || "Could not use item."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7655,7 +7642,7 @@ client.on("interactionCreate", async (interaction) => {
             `Remaining: **${itemState.quantity - 1}**`
           ],
           [],
-          { ephemeral: true }
+          { flags: MessageFlags.Ephemeral }
         );
         return;
       }
@@ -7667,7 +7654,7 @@ client.on("interactionCreate", async (interaction) => {
             "Gift Item",
             ["This command can only be used in a server."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7682,7 +7669,7 @@ client.on("interactionCreate", async (interaction) => {
             "Gift Item",
             ["You cannot gift items to bots."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7694,7 +7681,7 @@ client.on("interactionCreate", async (interaction) => {
             "Gift Item",
             ["That item does not exist."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7709,7 +7696,7 @@ client.on("interactionCreate", async (interaction) => {
               `Need: **${quantity}** | Have: **${haveState?.quantity || 0}**`
             ],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7721,7 +7708,7 @@ client.on("interactionCreate", async (interaction) => {
             "Gift Item",
             [result.reason || "Could not gift item."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7733,7 +7720,7 @@ client.on("interactionCreate", async (interaction) => {
             `${SUCCESSFUL_EMOJI_RAW} Gifted **${quantity}x ${item.name}** to **${recipient.username}**`
           ],
           [],
-          { ephemeral: true }
+          { flags: MessageFlags.Ephemeral }
         );
         return;
       }
@@ -7745,7 +7732,7 @@ client.on("interactionCreate", async (interaction) => {
             "Trade",
             ["This command can only be used in a server."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7760,7 +7747,7 @@ client.on("interactionCreate", async (interaction) => {
               "Trade",
               ["You cannot trade with bots."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7771,7 +7758,7 @@ client.on("interactionCreate", async (interaction) => {
               "Trade",
               ["You cannot trade with yourself."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7787,7 +7774,7 @@ client.on("interactionCreate", async (interaction) => {
               "Trade",
               ["Both offer and request lists must have at least one item."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7801,7 +7788,7 @@ client.on("interactionCreate", async (interaction) => {
                 "Trade",
                 [`You don't have item \`${itemId}\`.`],
                 [],
-                { ephemeral: true }
+                { flags: MessageFlags.Ephemeral }
               );
               return;
             }
@@ -7813,7 +7800,7 @@ client.on("interactionCreate", async (interaction) => {
                 "Trade",
                 [`You don't have **${item.name}** in your inventory`],
                 [],
-                { ephemeral: true }
+                { flags: MessageFlags.Ephemeral }
               );
               return;
             }
@@ -7838,7 +7825,7 @@ client.on("interactionCreate", async (interaction) => {
               `Expires in 1 hour`
             ],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7851,7 +7838,7 @@ client.on("interactionCreate", async (interaction) => {
               "Trade Proposals",
               ["No pending trade proposals for you."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7866,7 +7853,7 @@ client.on("interactionCreate", async (interaction) => {
             "Your Trade Proposals",
             lines,
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7881,7 +7868,7 @@ client.on("interactionCreate", async (interaction) => {
               "Trade",
               ["That trade proposal does not exist or has expired."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7892,7 +7879,7 @@ client.on("interactionCreate", async (interaction) => {
               "Trade",
               ["You are not the target of this trade proposal."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7904,7 +7891,7 @@ client.on("interactionCreate", async (interaction) => {
               "Trade",
               [result.reason || "Could not accept trade."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -7917,7 +7904,7 @@ client.on("interactionCreate", async (interaction) => {
               `You traded **${proposal.requestedItems.length}** item(s) for **${proposal.offeredItems.length}** item(s)`
             ],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -7928,7 +7915,7 @@ client.on("interactionCreate", async (interaction) => {
         const id = getSelectedCharacterId(guildId, user.id);
         const character = getCharacterById(id, guildId);
         const respond = (message, components = []) => replyComponentsV2(
-          interaction, "Outfits", [message], components, { ephemeral: true }
+          interaction, "Outfits", [message], components, { flags: MessageFlags.Ephemeral }
         );
         if (!character || getAssignedUserId(guildId, id) !== user.id) {
           await respond("Select one of your characters with /character pick.");
@@ -7984,7 +7971,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (interaction.commandName === "say") {
         // Defer reply immediately since webhook operations can take time
-        await interaction.deferReply({ ephemeral: true, flags: 32768 });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         if (!interaction.inGuild()) {
           await editComponentsV2(
@@ -8473,7 +8460,7 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (interaction.commandName === "say-edit") {
-        await interaction.deferReply({ ephemeral: true, flags: 32768 });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         if (!interaction.inGuild()) {
           await editComponentsV2(
@@ -8671,7 +8658,7 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (interaction.commandName === "say-delete") {
-        await interaction.deferReply({ ephemeral: true, flags: 32768 });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         if (!interaction.inGuild()) {
           await editComponentsV2(
@@ -8862,7 +8849,7 @@ client.on("interactionCreate", async (interaction) => {
             "Leaderboard",
             ["This command can only be used in a server."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -8887,7 +8874,7 @@ client.on("interactionCreate", async (interaction) => {
             "Points",
             ["This command can only be used in a server."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -8920,7 +8907,7 @@ client.on("interactionCreate", async (interaction) => {
           `${targetUser.username}'s Points`,
           lines,
           [],
-          { ephemeral: true }
+          { flags: MessageFlags.Ephemeral }
         );
         return;
       }
@@ -8936,7 +8923,7 @@ client.on("interactionCreate", async (interaction) => {
             "Setup",
             ["You do not have permission to configure the bot."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -8945,15 +8932,14 @@ client.on("interactionCreate", async (interaction) => {
           try {
             const panelComponents = buildSetupAdminPanel(interaction.guildId);
             await interaction.reply({
-              flags: 32768,
+              flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
               components: panelComponents,
-              ephemeral: true
             });
           } catch (error) {
             console.error("[SETUP PANEL ERROR]", error);
             await interaction.reply({
               content: `Error building setup panel: ${error.message || String(error)}`,
-              ephemeral: true
+              flags: MessageFlags.Ephemeral
             }).catch(e => console.error("[ERROR REPLY FAILED]", e));
           }
           return;
@@ -8972,7 +8958,7 @@ client.on("interactionCreate", async (interaction) => {
                 "Add Points",
                 ["You cannot add points to bot accounts."],
                 [],
-                { ephemeral: true }
+                { flags: MessageFlags.Ephemeral }
               );
               return;
             }
@@ -8991,7 +8977,7 @@ client.on("interactionCreate", async (interaction) => {
                 `New user wallet total: **${formatPointsWithEmoji(newTotal)}**`
               ],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -9004,7 +8990,7 @@ client.on("interactionCreate", async (interaction) => {
                 "Add Points",
                 ["For character wallet updates, provide the `character` option."],
                 [],
-                { ephemeral: true }
+                { flags: MessageFlags.Ephemeral }
               );
               return;
             }
@@ -9016,7 +9002,7 @@ client.on("interactionCreate", async (interaction) => {
                 "Add Points",
                 ["That character does not exist."],
                 [],
-                { ephemeral: true }
+                { flags: MessageFlags.Ephemeral }
               );
               return;
             }
@@ -9037,7 +9023,7 @@ client.on("interactionCreate", async (interaction) => {
                 `New character wallet total: **${formatPointsWithEmoji(newTotal)}**`
               ],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -9047,7 +9033,7 @@ client.on("interactionCreate", async (interaction) => {
             "Add Points",
             ["Invalid wallet type."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -9059,7 +9045,7 @@ client.on("interactionCreate", async (interaction) => {
               "Setup",
               ["This command can only be used in a server."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -9071,9 +9057,8 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildRoleShopAdminPanel(interaction.guildId),
-            ephemeral: true
           });
           return;
         }
@@ -9085,15 +9070,14 @@ client.on("interactionCreate", async (interaction) => {
               "Setup",
               ["This command can only be used in a server."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
 
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildTitleAdminPanel(interaction.guildId),
-            ephemeral: true
           });
           return;
         }
@@ -9106,7 +9090,7 @@ client.on("interactionCreate", async (interaction) => {
               "Create Item",
               ["Only server owners and bot managers can create permanent items."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -9117,7 +9101,7 @@ client.on("interactionCreate", async (interaction) => {
               "Create Item",
               ["Only dungeon masters, bot managers, or the server owner can create temporary items."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -9166,7 +9150,7 @@ client.on("interactionCreate", async (interaction) => {
               `Type: **${item.isTemporary ? "Temporary" : "Permanent"}**`
             ],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -9178,7 +9162,7 @@ client.on("interactionCreate", async (interaction) => {
               "Give Item",
               ["Only server owners and bot managers can give inventory items."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -9195,7 +9179,7 @@ client.on("interactionCreate", async (interaction) => {
               "Give Item",
               ["That inventory item does not exist in this server."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -9206,7 +9190,7 @@ client.on("interactionCreate", async (interaction) => {
               "Give Item",
               ["You cannot give inventory items to bot accounts."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -9219,7 +9203,7 @@ client.on("interactionCreate", async (interaction) => {
                 "Give Item",
                 ["The specified holder character does not exist."],
                 [],
-                { ephemeral: true }
+                { flags: MessageFlags.Ephemeral }
               );
               return;
             }
@@ -9230,7 +9214,7 @@ client.on("interactionCreate", async (interaction) => {
                 "Give Item",
                 ["The specified character is not assigned to that user."],
                 [],
-                { ephemeral: true }
+                { flags: MessageFlags.Ephemeral }
               );
               return;
             }
@@ -9250,7 +9234,7 @@ client.on("interactionCreate", async (interaction) => {
               holderLine
             ],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -9262,7 +9246,7 @@ client.on("interactionCreate", async (interaction) => {
               "Set Item Shop",
               ["Only server owners and bot managers can update shop listings."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -9277,7 +9261,7 @@ client.on("interactionCreate", async (interaction) => {
               "Set Item Shop",
               ["That inventory item does not exist in this server."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -9292,7 +9276,7 @@ client.on("interactionCreate", async (interaction) => {
               `${SUCCESSFUL_EMOJI_RAW} **${item.name}** is now ${inShop ? "listed in" : "removed from"} /shop.`
             ],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -9305,7 +9289,7 @@ client.on("interactionCreate", async (interaction) => {
             "Bot Say",
             ["You do not have permission to use this command."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -9316,7 +9300,7 @@ client.on("interactionCreate", async (interaction) => {
             "Bot Say",
             ["This command can only be used in a server."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -9330,7 +9314,7 @@ client.on("interactionCreate", async (interaction) => {
             "Bot Say",
             ["Target channel must be text-based."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -9345,7 +9329,7 @@ client.on("interactionCreate", async (interaction) => {
           "Bot Say",
           ["Message sent."],
           [],
-          { ephemeral: true }
+          { flags: MessageFlags.Ephemeral }
         );
         return;
       }
@@ -9357,16 +9341,15 @@ client.on("interactionCreate", async (interaction) => {
             "Shop",
             ["This command can only be used in a server."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
 
         const shopView = buildShopView(interaction.guildId, interaction.user.id, 0);
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: shopView.components,
-          ephemeral: true
         });
         return;
       }
@@ -9395,7 +9378,7 @@ client.on("interactionCreate", async (interaction) => {
             await interaction.reply({
               content: messageContent,
               components: [premiumRow],
-              ephemeral: true
+              flags: MessageFlags.Ephemeral
             });
             return;
           } catch (premiumButtonError) {
@@ -9407,7 +9390,7 @@ client.on("interactionCreate", async (interaction) => {
         const appId = client.application?.id || process.env.CLIENT_ID || "";
         const purchaseUrl = DISCORD_PREMIUM_PURCHASE_URL || (appId ? `https://discord.com/application-directory/${appId}` : "");
         const fallbackLines = messageContent + (purchaseUrl ? `\n\nPurchase link: ${purchaseUrl}` : "");
-        await interaction.reply({ content: fallbackLines, ephemeral: true });
+        await interaction.reply({ content: fallbackLines, flags: MessageFlags.Ephemeral });
         return;
       }
 
@@ -9415,9 +9398,8 @@ client.on("interactionCreate", async (interaction) => {
         const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
         const helpView = buildHelpView(interaction.guildId, interaction.user.id, isAdmin, 0);
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: helpView.components,
-          ephemeral: true
         });
         return;
       }
@@ -9425,9 +9407,8 @@ client.on("interactionCreate", async (interaction) => {
       if (interaction.commandName === "tutorial") {
         const tutorialView = buildTutorialView(interaction.guildId, interaction.user.id, 0);
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: tutorialView.components,
-          ephemeral: true
         });
         return;
       }
@@ -9437,7 +9418,7 @@ client.on("interactionCreate", async (interaction) => {
         "Unknown Command",
         ["This command is not available right now. Please run /help and try again."],
         [],
-        { ephemeral: true }
+        { flags: MessageFlags.Ephemeral }
       );
       return;
 
@@ -9448,8 +9429,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!interaction.inGuild()) {
           await interaction.reply({
             content: "This button only works in a server.",
-            flags: 32768,
-            ephemeral: true
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           });
           return;
         }
@@ -9457,8 +9437,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
           await interaction.reply({
             content: "You do not have permission to use this panel.",
-            flags: 32768,
-            ephemeral: true
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           });
           return;
         }
@@ -9711,8 +9690,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!interaction.inGuild()) {
           await interaction.reply({
             content: "This button only works in a server.",
-            flags: 32768,
-            ephemeral: true
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           });
           return;
         }
@@ -9720,8 +9698,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
           await interaction.reply({
             content: "You do not have permission to manage shop items.",
-            flags: 32768,
-            ephemeral: true
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           });
           return;
         }
@@ -9834,8 +9811,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!interaction.inGuild()) {
           await interaction.reply({
             content: "This button only works in a server.",
-            flags: 32768,
-            ephemeral: true
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           });
           return;
         }
@@ -9843,8 +9819,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
           await interaction.reply({
             content: "You do not have permission to manage titles.",
-            flags: 32768,
-            ephemeral: true
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           });
           return;
         }
@@ -9954,8 +9929,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!interaction.inGuild()) {
           await interaction.reply({
             content: "This button only works in a server.",
-            flags: 32768,
-            ephemeral: true
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           });
           return;
         }
@@ -9963,8 +9937,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!hasAdminAccess(interaction)) {
           await interaction.reply({
             content: "You do not have permission to manage setup.",
-            flags: 32768,
-            ephemeral: true
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           });
           return;
         }
@@ -10186,7 +10159,7 @@ client.on("interactionCreate", async (interaction) => {
                 ]
               }
             ],
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
           return;
         }
@@ -10208,7 +10181,7 @@ client.on("interactionCreate", async (interaction) => {
                 ]
               }
             ],
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
           return;
         }
@@ -10217,7 +10190,7 @@ client.on("interactionCreate", async (interaction) => {
           const adminRoleIds = getAdminRoleIds(interaction.guildId);
           if (adminRoleIds.length === 0) {
             await interaction.reply({
-              ephemeral: true,
+              flags: MessageFlags.Ephemeral,
               components: buildSetupAdminPanel(
                 interaction.guildId,
                 `${UNSUCCESSFUL_EMOJI_RAW} No admin roles configured.`
@@ -10238,7 +10211,7 @@ client.on("interactionCreate", async (interaction) => {
 
           if (options.length === 0) {
             await interaction.reply({
-              ephemeral: true,
+              flags: MessageFlags.Ephemeral,
               components: buildSetupAdminPanel(
                 interaction.guildId,
                 `${UNSUCCESSFUL_EMOJI_RAW} Configured admin roles were not found in this server.`
@@ -10249,7 +10222,7 @@ client.on("interactionCreate", async (interaction) => {
 
           await interaction.reply({
             content: "Choose an admin role to remove.",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
             components: [
               {
                 type: 1,
@@ -10273,7 +10246,7 @@ client.on("interactionCreate", async (interaction) => {
           const dungeonRoleIds = getDungeonMasterRoleIds(interaction.guildId);
           if (dungeonRoleIds.length === 0) {
             await interaction.reply({
-              ephemeral: true,
+              flags: MessageFlags.Ephemeral,
               components: buildSetupAdminPanel(
                 interaction.guildId,
                 `${UNSUCCESSFUL_EMOJI_RAW} No dungeon master roles configured.`
@@ -10294,7 +10267,7 @@ client.on("interactionCreate", async (interaction) => {
 
           if (options.length === 0) {
             await interaction.reply({
-              ephemeral: true,
+              flags: MessageFlags.Ephemeral,
               components: buildSetupAdminPanel(
                 interaction.guildId,
                 `${UNSUCCESSFUL_EMOJI_RAW} Configured dungeon master roles were not found in this server.`
@@ -10305,7 +10278,7 @@ client.on("interactionCreate", async (interaction) => {
 
           await interaction.reply({
             content: "Choose a dungeon master role to remove.",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
             components: [
               {
                 type: 1,
@@ -10328,7 +10301,7 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "set-logs") {
           await interaction.reply({
             content: "Choose the logs channel.",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
             components: [
               {
                 type: 1,
@@ -10351,7 +10324,7 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "set-character-level-up-alerts") {
           await interaction.reply({
             content: "Choose the channel for character level-up alerts.",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
             components: [
               {
                 type: 1,
@@ -10374,7 +10347,7 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "set-user-level-up-alerts") {
           await interaction.reply({
             content: "Choose the channel for user level-up alerts.",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
             components: [
               {
                 type: 1,
@@ -10397,7 +10370,7 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "set-say-channels") {
           await interaction.reply({
             content: "Choose the channels where /say is allowed. If no channels are configured, /say is allowed everywhere.",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
             components: [
               {
                 type: 1,
@@ -10575,8 +10548,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!interaction.inGuild()) {
           await interaction.reply({
             content: "This button only works in a server.",
-            flags: 32768,
-            ephemeral: true
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           });
           return;
         }
@@ -10594,8 +10566,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!interaction.inGuild()) {
           await interaction.reply({
             content: "This button only works in a server.",
-            flags: 32768,
-            ephemeral: true
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           });
           return;
         }
@@ -10846,8 +10817,7 @@ client.on("interactionCreate", async (interaction) => {
         if (showAdmin && !isAdmin) {
           await interaction.reply({
             content: "You do not have permission to view admin commands.",
-            flags: 32768,
-            ephemeral: true
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           });
           return;
         }
@@ -10950,8 +10920,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!interaction.inGuild()) {
           await interaction.reply({
             content: "This button only works in a server.",
-            flags: 32768,
-            ephemeral: true
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           });
           return;
         }
@@ -10979,8 +10948,7 @@ client.on("interactionCreate", async (interaction) => {
       if (!character) {
         await interaction.reply({
           content: "Character no longer exists.",
-          flags: 32768,
-          ephemeral: true
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         });
         return;
       }
@@ -10991,8 +10959,7 @@ client.on("interactionCreate", async (interaction) => {
       if (!isAdmin && !isOwner) {
         await interaction.reply({
           content: "You do not have permission to edit this character.",
-          flags: 32768,
-          ephemeral: true
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         });
         return;
       }
@@ -11005,8 +10972,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!ownedIds.includes(selectedValue)) {
           await interaction.reply({
             content: "You don't own that title.",
-            flags: 32768,
-            ephemeral: true
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           });
           return;
         }
@@ -11020,13 +10986,12 @@ client.on("interactionCreate", async (interaction) => {
         : "None";
 
       await interaction.reply({
-        flags: 32768,
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         components: buildComponentsBox(
           "Title Updated",
           [`${SUCCESSFUL_EMOJI_RAW} **${character.name}**'s title set to: **${titleDisplay}**`],
           []
         ),
-        ephemeral: true
       });
       return;
     }
@@ -11045,36 +11010,33 @@ client.on("interactionCreate", async (interaction) => {
 
         if (!role || role.id === interaction.guildId) {
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildSetupAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} Invalid role selection.`
             ),
-            ephemeral: true
           });
           return;
         }
 
         if (getAdminRoleIds(interaction.guildId).includes(role.id)) {
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildSetupAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} <@&${role.id}> is already an admin role.`
             ),
-            ephemeral: true
           });
           return;
         }
 
         addAdminRoleId(interaction.guildId, role.id);
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `<:success:1479234774861221898> Added <@&${role.id}> as an admin role.`
           ),
-          ephemeral: true
         });
         return;
     }
@@ -11093,30 +11055,28 @@ client.on("interactionCreate", async (interaction) => {
 
       if (!roleId) {
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `${UNSUCCESSFUL_EMOJI_RAW} Invalid role selection.`
           ),
-          ephemeral: true
         });
         return;
       }
 
       if (!getAdminRoleIds(interaction.guildId).includes(roleId)) {
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `${UNSUCCESSFUL_EMOJI_RAW} That role is not currently configured.`
           ),
-          ephemeral: true
         });
         return;
       }
 
       await interaction.reply({
-        flags: 32768,
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         components: buildComponentsBox(
           "Remove Admin Role",
           [
@@ -11143,7 +11103,6 @@ client.on("interactionCreate", async (interaction) => {
             }
           ]
         ),
-        ephemeral: true
       });
       return;
     }
@@ -11162,36 +11121,33 @@ client.on("interactionCreate", async (interaction) => {
 
       if (!role || role.id === interaction.guildId) {
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `${UNSUCCESSFUL_EMOJI_RAW} Invalid role selection.`
           ),
-          ephemeral: true
         });
         return;
       }
 
       if (getDungeonMasterRoleIds(interaction.guildId).includes(role.id)) {
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `${UNSUCCESSFUL_EMOJI_RAW} <@&${role.id}> is already a dungeon master role.`
           ),
-          ephemeral: true
         });
         return;
       }
 
       addDungeonMasterRoleId(interaction.guildId, role.id);
       await interaction.reply({
-        flags: 32768,
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         components: buildSetupAdminPanel(
           interaction.guildId,
           `<:success:1479234774861221898> Added <@&${role.id}> as a dungeon master role.`
         ),
-        ephemeral: true
       });
       return;
     }
@@ -11210,30 +11166,28 @@ client.on("interactionCreate", async (interaction) => {
 
       if (!roleId) {
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `${UNSUCCESSFUL_EMOJI_RAW} Invalid role selection.`
           ),
-          ephemeral: true
         });
         return;
       }
 
       if (!getDungeonMasterRoleIds(interaction.guildId).includes(roleId)) {
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `${UNSUCCESSFUL_EMOJI_RAW} That role is not currently configured as a dungeon master role.`
           ),
-          ephemeral: true
         });
         return;
       }
 
       await interaction.reply({
-        flags: 32768,
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         components: buildComponentsBox(
           "Remove Dungeon Master Role",
           [
@@ -11260,7 +11214,6 @@ client.on("interactionCreate", async (interaction) => {
             }
           ]
         ),
-        ephemeral: true
       });
       return;
     }
@@ -11279,24 +11232,22 @@ client.on("interactionCreate", async (interaction) => {
 
       if (!channel || !channel.isTextBased()) {
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `${UNSUCCESSFUL_EMOJI_RAW} Invalid channel selection.`
           ),
-          ephemeral: true
         });
         return;
       }
 
       setLogsChannelIdForGuild(interaction.guildId, channel.id);
       await interaction.reply({
-        flags: 32768,
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         components: buildSetupAdminPanel(
           interaction.guildId,
           `<:success:1479234774861221898> Logs channel set to <#${channel.id}>.`
         ),
-        ephemeral: true
       });
       return;
     }
@@ -11326,12 +11277,11 @@ client.on("interactionCreate", async (interaction) => {
 
       if (validChannelIds.length === 0) {
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `${UNSUCCESSFUL_EMOJI_RAW} Invalid channel selection.`
           ),
-          ephemeral: true
         });
         return;
       }
@@ -11341,12 +11291,11 @@ client.on("interactionCreate", async (interaction) => {
       const suffix = validChannelIds.length > 4 ? ` and ${validChannelIds.length - 4} more` : "";
 
       await interaction.reply({
-        flags: 32768,
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         components: buildSetupAdminPanel(
           interaction.guildId,
           `<:success:1479234774861221898> /say is now allowed in ${summary}${suffix}.`
         ),
-        ephemeral: true
       });
       return;
     }
@@ -11365,24 +11314,22 @@ client.on("interactionCreate", async (interaction) => {
 
       if (!channel || !channel.isTextBased()) {
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `${UNSUCCESSFUL_EMOJI_RAW} Invalid channel selection.`
           ),
-          ephemeral: true
         });
         return;
       }
 
       setCharacterLevelUpAlertsChannelIdForGuild(interaction.guildId, channel.id);
       await interaction.reply({
-        flags: 32768,
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         components: buildSetupAdminPanel(
           interaction.guildId,
           `<:success:1479234774861221898> Character level-up alerts channel set to <#${channel.id}>.`
         ),
-        ephemeral: true
       });
       return;
     }
@@ -11401,24 +11348,22 @@ client.on("interactionCreate", async (interaction) => {
 
       if (!channel || !channel.isTextBased()) {
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `${UNSUCCESSFUL_EMOJI_RAW} Invalid channel selection.`
           ),
-          ephemeral: true
         });
         return;
       }
 
       setUserLevelUpAlertsChannelIdForGuild(interaction.guildId, channel.id);
       await interaction.reply({
-        flags: 32768,
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         components: buildSetupAdminPanel(
           interaction.guildId,
           `<:success:1479234774861221898> User level-up alerts channel set to <#${channel.id}>.`
         ),
-        ephemeral: true
       });
       return;
     }
@@ -11535,12 +11480,11 @@ client.on("interactionCreate", async (interaction) => {
         const price = Number.parseInt(rawPrice, 10);
         if (!name || !description || !Number.isFinite(price) || price <= 0) {
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildRoleShopAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} Invalid form values. Check name, description, and numeric price.`
             ),
-            ephemeral: true
           });
           return;
         }
@@ -11549,24 +11493,22 @@ client.on("interactionCreate", async (interaction) => {
         const role = roleId ? interaction.guild.roles.cache.get(roleId) : null;
         if (!role) {
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildRoleShopAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} Could not resolve that role. Use role mention or ID.`
             ),
-            ephemeral: true
           });
           return;
         }
 
         if (role.id === interaction.guildId || role.managed) {
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildRoleShopAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} That role cannot be used as a purchasable item.`
             ),
-            ephemeral: true
           });
           return;
         }
@@ -11578,12 +11520,11 @@ client.on("interactionCreate", async (interaction) => {
         );
         if (duplicate) {
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildRoleShopAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} An item with the same role, wallet, and name already exists.`
             ),
-            ephemeral: true
           });
           return;
         }
@@ -11602,12 +11543,11 @@ client.on("interactionCreate", async (interaction) => {
         saveShopRoleItems();
 
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildRoleShopAdminPanel(
             interaction.guildId,
             `<:success:1479234774861221898> Added **${name}** for <@&${role.id}> at **${price} ${POINTS_EMOJI_RAW}** using ${getRoleItemWalletLabel(walletType)}.`
           ),
-          ephemeral: true
         });
         return;
       }
@@ -11636,12 +11576,11 @@ client.on("interactionCreate", async (interaction) => {
 
         if (!titleName || !titleDescription || !Number.isFinite(titlePrice) || titlePrice <= 0) {
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildTitleAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} Invalid form values. Check name, description, and numeric price.`
             ),
-            ephemeral: true
           });
           return;
         }
@@ -11651,12 +11590,11 @@ client.on("interactionCreate", async (interaction) => {
         );
         if (duplicate) {
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildTitleAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} A title with that name already exists.`
             ),
-            ephemeral: true
           });
           return;
         }
@@ -11673,12 +11611,11 @@ client.on("interactionCreate", async (interaction) => {
         saveTitles();
 
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildTitleAdminPanel(
             interaction.guildId,
             `<:success:1479234774861221898> Added title **${titleName}** for **${titlePrice} ${POINTS_EMOJI_RAW}**.`
           ),
-          ephemeral: true
         });
         return;
       }
@@ -11695,36 +11632,33 @@ client.on("interactionCreate", async (interaction) => {
 
         if (!role || role.id === interaction.guildId) {
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildSetupAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} Invalid role. Use a role mention or ID.`
             ),
-            ephemeral: true
           });
           return;
         }
 
         if (getAdminRoleIds(interaction.guildId).includes(role.id)) {
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildSetupAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} <@&${role.id}> is already an admin role.`
             ),
-            ephemeral: true
           });
           return;
         }
 
         addAdminRoleId(interaction.guildId, role.id);
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `<:success:1479234774861221898> Added <@&${role.id}> as an admin role.`
           ),
-          ephemeral: true
         });
         return;
       }
@@ -11741,36 +11675,33 @@ client.on("interactionCreate", async (interaction) => {
 
         if (!roleId) {
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildSetupAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} Invalid role. Use a role mention or ID.`
             ),
-            ephemeral: true
           });
           return;
         }
 
         if (!getAdminRoleIds(interaction.guildId).includes(roleId)) {
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildSetupAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} That role is not currently configured.`
             ),
-            ephemeral: true
           });
           return;
         }
 
         removeAdminRoleId(interaction.guildId, roleId);
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `<:success:1479234774861221898> Removed ${role ? `<@&${role.id}>` : `role \`${roleId}\``} from admin roles.`
           ),
-          ephemeral: true
         });
         return;
       }
@@ -11787,24 +11718,22 @@ client.on("interactionCreate", async (interaction) => {
 
         if (!channel || !channel.isTextBased()) {
           await interaction.reply({
-            flags: 32768,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             components: buildSetupAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} Invalid channel. Use a text channel mention or ID.`
             ),
-            ephemeral: true
           });
           return;
         }
 
         setLogsChannelIdForGuild(interaction.guildId, channel.id);
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: buildSetupAdminPanel(
             interaction.guildId,
             `<:success:1479234774861221898> Logs channel set to <#${channel.id}>.`
           ),
-          ephemeral: true
         });
         return;
       }
@@ -11920,7 +11849,7 @@ client.on("interactionCreate", async (interaction) => {
             "Edit Character",
             [`Character with ID "${characterId}" does not exist.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -11935,7 +11864,7 @@ client.on("interactionCreate", async (interaction) => {
               "Edit Character",
               ["You do not have permission to edit this character."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
           return;
         }
@@ -12083,7 +12012,7 @@ client.on("interactionCreate", async (interaction) => {
             "Edit More Fields",
             [`Character with ID "${characterId}" does not exist.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -12098,7 +12027,7 @@ client.on("interactionCreate", async (interaction) => {
             "Edit More Fields",
             ["You do not have permission to edit this character."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -12166,7 +12095,7 @@ client.on("interactionCreate", async (interaction) => {
               "❗ Invalid Age",
               ["Age must be a number between 1 and 1000 or 'Unknown'."],
               [],
-              { ephemeral: true }
+              { flags: MessageFlags.Ephemeral }
             );
             return;
           }
@@ -12248,7 +12177,7 @@ client.on("interactionCreate", async (interaction) => {
         const character = getCharacterById(characterId, interaction.guildId);
 
         if (!character) {
-          await replyComponentsV2(interaction, "Edit Card Style", [`Character with ID "${characterId}" does not exist.`], [], { ephemeral: true });
+          await replyComponentsV2(interaction, "Edit Card Style", [`Character with ID "${characterId}" does not exist.`], [], { flags: MessageFlags.Ephemeral });
           return;
         }
 
@@ -12256,7 +12185,7 @@ client.on("interactionCreate", async (interaction) => {
         const isOwner = getAssignedUserId(interaction.guildId, characterId) === interaction.user.id;
 
         if (!isAdmin && !isOwner) {
-          await replyComponentsV2(interaction, "Edit Card Style", ["You do not have permission to edit this character."], [], { ephemeral: true });
+          await replyComponentsV2(interaction, "Edit Card Style", ["You do not have permission to edit this character."], [], { flags: MessageFlags.Ephemeral });
           return;
         }
 
@@ -12295,7 +12224,7 @@ client.on("interactionCreate", async (interaction) => {
               character.cardTheme = themeVal;
               updates.push(`Theme: **${themeVal}**`);
             } else if (!validThemes.includes(themeVal)) {
-              await replyComponentsV2(interaction, "Edit Card Style", [`Invalid theme "${themeVal}". Choose from: arcane, ember, verdant, frost.`], [], { ephemeral: true });
+              await replyComponentsV2(interaction, "Edit Card Style", [`Invalid theme "${themeVal}". Choose from: arcane, ember, verdant, frost.`], [], { flags: MessageFlags.Ephemeral });
               return;
             }
           }
@@ -12304,7 +12233,7 @@ client.on("interactionCreate", async (interaction) => {
           if (newAccent && newAccent.trim()) {
             const accentVal = newAccent.trim();
             if (!/^#?[0-9a-fA-F]{6}$/.test(accentVal)) {
-              await replyComponentsV2(interaction, "Edit Card Style", ["Accent must be a 6-digit HEX color like `#54C0FF` or `54C0FF`."], [], { ephemeral: true });
+              await replyComponentsV2(interaction, "Edit Card Style", ["Accent must be a 6-digit HEX color like `#54C0FF` or `54C0FF`."], [], { flags: MessageFlags.Ephemeral });
               return;
             }
             if (character.cardAccent !== accentVal) {
@@ -12321,7 +12250,7 @@ client.on("interactionCreate", async (interaction) => {
           const hasPremium = getPremiumSlotBonus(interaction.guildId, interaction.user.id) > 0;
           if (newBackground && newBackground.trim()) {
             if (!hasPremium) {
-              await replyComponentsV2(interaction, "Edit Card Style", ["Custom background images require the **Premium Features Subscription**."], [], { ephemeral: true });
+              await replyComponentsV2(interaction, "Edit Card Style", ["Custom background images require the **Premium Features Subscription**."], [], { flags: MessageFlags.Ephemeral });
               return;
             }
             const bgVal = newBackground.trim();
@@ -12362,7 +12291,7 @@ client.on("interactionCreate", async (interaction) => {
           await acknowledgeInteractionSilently(interaction);
         } catch (error) {
           console.error("Error processing card style modal:", error);
-          await replyComponentsV2(interaction, "Error", ["Failed to save card style. Please try again."], [], { ephemeral: true });
+          await replyComponentsV2(interaction, "Error", ["Failed to save card style. Please try again."], [], { flags: MessageFlags.Ephemeral });
         }
         return;
       }
@@ -12380,7 +12309,7 @@ client.on("interactionCreate", async (interaction) => {
             "Edit Media",
             [`Character with ID "${characterId}" does not exist.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -12395,7 +12324,7 @@ client.on("interactionCreate", async (interaction) => {
             "Edit Media",
             ["You do not have permission to edit this character."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -12696,7 +12625,7 @@ client.on("interactionCreate", async (interaction) => {
             "Edit Character",
             [`Character with ID "${characterId}" does not exist.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -12711,7 +12640,7 @@ client.on("interactionCreate", async (interaction) => {
             "Edit Character",
             ["You do not have permission to edit this character."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -12772,7 +12701,7 @@ client.on("interactionCreate", async (interaction) => {
             "Error",
             ["Failed to open edit form. Please try again."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
         }
         return;
@@ -12789,7 +12718,7 @@ client.on("interactionCreate", async (interaction) => {
             "Edit More Fields",
             [`Character with ID "${characterId}" does not exist.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -12804,7 +12733,7 @@ client.on("interactionCreate", async (interaction) => {
             "Edit More Fields",
             ["You do not have permission to edit this character."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -12865,7 +12794,7 @@ client.on("interactionCreate", async (interaction) => {
             "Error",
             ["Failed to open edit form. Please try again."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
         }
         return;
@@ -12881,7 +12810,7 @@ client.on("interactionCreate", async (interaction) => {
             "Select Title",
             [`Character with ID "${characterId}" does not exist.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -12895,7 +12824,7 @@ client.on("interactionCreate", async (interaction) => {
             "Select Title",
             ["You do not have permission to edit this character."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -12907,7 +12836,7 @@ client.on("interactionCreate", async (interaction) => {
             "Select Title",
             ["You don't own any titles yet. Buy titles from `/shop`."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -12933,7 +12862,7 @@ client.on("interactionCreate", async (interaction) => {
             "Select Title",
             ["Your owned titles no longer exist in this server. Buy titles from `/shop`."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -12958,9 +12887,8 @@ client.on("interactionCreate", async (interaction) => {
         ];
 
         await interaction.reply({
-          flags: 32768,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           components: [{ type: 17, components: titleSelectComponents }],
-          ephemeral: true
         });
         return;
       }
@@ -12975,7 +12903,7 @@ client.on("interactionCreate", async (interaction) => {
             "Edit Card Style",
             [`Character with ID "${characterId}" does not exist.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -12990,7 +12918,7 @@ client.on("interactionCreate", async (interaction) => {
             "Edit Card Style",
             ["You do not have permission to edit this character."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -13043,7 +12971,7 @@ client.on("interactionCreate", async (interaction) => {
             "Error",
             ["Failed to open card style form. Please try again."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
         }
         return;
@@ -13059,7 +12987,7 @@ client.on("interactionCreate", async (interaction) => {
             "Edit Media",
             [`Character with ID "${characterId}" does not exist.`],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -13074,7 +13002,7 @@ client.on("interactionCreate", async (interaction) => {
             "Edit Media",
             ["You do not have permission to edit this character."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
           return;
         }
@@ -13105,7 +13033,7 @@ client.on("interactionCreate", async (interaction) => {
             "Error",
             ["Failed to open edit form. Please try again."],
             [],
-            { ephemeral: true }
+            { flags: MessageFlags.Ephemeral }
           );
         }
         return;
@@ -13130,7 +13058,7 @@ client.on("interactionCreate", async (interaction) => {
           "Error",
           ["Something went wrong handling that interaction."],
           [],
-          { ephemeral: true }
+          { flags: MessageFlags.Ephemeral }
         );
       } else if (interaction.deferred && !interaction.replied) {
         await interaction.editReply({
@@ -13140,7 +13068,7 @@ client.on("interactionCreate", async (interaction) => {
       } else {
         await interaction.followUp({
           content: "Something went wrong handling that interaction.",
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
       }
     } catch (replyError) {
