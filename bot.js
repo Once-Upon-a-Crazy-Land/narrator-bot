@@ -5908,23 +5908,14 @@ client.once("clientReady", () => {
     console.log(`- ${guild.name} (${guild.id})`);
   }
 
-  (async () => {
-    try {
-      await registerCommands();
-      console.log("Slash commands registered successfully.");
-    } catch (error) {
-      console.error("Slash command registration failed after login; bot will remain online:", error);
-    }
-  })();
-
   const commandGuildId = (process.env.COMMAND_GUILD_ID || "").trim();
   const commandMode = commandGuildId ? `guild (${commandGuildId})` : "global";
   console.log(
     `[Startup] Mode=${commandMode} | Servers=${client.guilds.cache.size} | Characters=${characters.length} | Assignments=${Object.keys(assignments).length} | Profiles=${Object.keys(userProfiles).length} | PremiumSKUs=${DISCORD_PREMIUM_SLOT_SKU_IDS.size}`
   );
 
-  if (!commandGuildId) {
-    (async () => {
+  (async () => {
+    if (!commandGuildId) {
       try {
         const guilds = await client.guilds.fetch();
         for (const [, guildRef] of guilds) {
@@ -5939,8 +5930,15 @@ client.once("clientReady", () => {
       } catch (error) {
         console.error("Failed to clear guild-specific commands:", error);
       }
-    })();
-  }
+    }
+
+    try {
+      await registerCommands();
+      console.log("Slash commands registered successfully.");
+    } catch (error) {
+      console.error("Slash command registration failed after login; bot will remain online:", error);
+    }
+  })();
 
   // Premium daily rewards: run once on startup, then check every hour
   const refreshPremiumAndRewards = async () => {
