@@ -5110,10 +5110,23 @@ async function registerCommands() {
     throw error;
   }
 
-  if (NEWS_GUILD_ID && NEWS_OWNER_ID) {
-    await rest.post(Routes.applicationGuildCommands(clientId, NEWS_GUILD_ID), {
+  if (!NEWS_GUILD_ID || !NEWS_OWNER_ID) {
+    const missing = [
+      !NEWS_GUILD_ID && "NEWS_GUILD_ID",
+      !NEWS_OWNER_ID && "NEWS_OWNER_ID"
+    ].filter(Boolean);
+    console.warn(`Skipped ${NEWS_COMMAND} registration. Missing ${missing.join(", ")}.`);
+    return;
+  }
+
+  try {
+    const command = await rest.post(Routes.applicationGuildCommands(clientId, NEWS_GUILD_ID), {
       body: { name: NEWS_COMMAND, type: 3 }
     });
+    console.log(`Registered ${NEWS_COMMAND} (${command.id}) in guild ${NEWS_GUILD_ID}.`);
+  } catch (error) {
+    console.error(`Failed to register ${NEWS_COMMAND} in guild ${NEWS_GUILD_ID}:`, error);
+    throw error;
   }
 }
 
