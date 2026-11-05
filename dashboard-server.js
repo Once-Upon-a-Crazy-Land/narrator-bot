@@ -3,6 +3,9 @@ import { readFile } from 'node:fs/promises';
 
 const assets = new Map([
   ['/', ['index.html', 'text/html']],
+  ['/dashboard.html', ['dashboard.html', 'text/html']],
+  ['/styles.css', ['styles.css', 'text/css']],
+  ['/all-seeing-dashboard.css', ['all-seeing-dashboard.css', 'text/css']],
   ['/dashboard.css', ['dashboard.css', 'text/css']],
   ['/dashboard.js', ['dashboard.js', 'text/javascript']],
   ['/fonts/Lato-Regular.ttf', ['fonts/Lato-Regular.ttf', 'font/ttf']],
@@ -23,7 +26,7 @@ export function createDashboardHandler({ client, getGuildData, updateGuildSettin
   return async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'same-origin');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' https://cdn.discordapp.com; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' https://cdn.discordapp.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     res.setHeader('Cache-Control', 'no-store');
     const send = (status, value) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
     const redirect = (url) => { res.writeHead(302, { Location: url }); res.end(); };
@@ -60,7 +63,7 @@ export function createDashboardHandler({ client, getGuildData, updateGuildSettin
         const key = randomBytes(32).toString('hex');
         sessions.set(key, { user, token: token.access_token, csrf: randomBytes(32).toString('hex'), expires: now + Math.min(token.expires_in, 28800) * 1000 });
         res.setHeader('Set-Cookie', cookie(key, Math.min(token.expires_in, 28800)));
-        return redirect('/');
+        return redirect('/dashboard.html');
       }
       if (url.pathname === '/api/session' && req.method === 'GET') return send(200, { configured, user: session?.user ? { id: session.user.id, name: session.user.global_name || session.user.username } : null, csrf: session?.csrf });
       if (!session?.user) return send(401, { error: 'Sign in with Discord to continue.' });

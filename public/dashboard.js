@@ -53,7 +53,7 @@ async function selectGuild(id) {
     $('enabled').checked = next.settings.roleplayEnabled;
     choices('channels', next.channels, next.settings.sayChannels, '# '); choices('admin-roles', next.roles, next.settings.adminRoles); choices('dm-roles', next.roles, next.settings.dungeonMasterRoles);
     $('search').value = ''; renderCharacters();
-    document.querySelectorAll('.server').forEach(el => el.classList.toggle('selected', el.dataset.id === id));
+    document.querySelectorAll('.server-rail-button').forEach(el => el.classList.toggle('active', el.dataset.id === id));
     $('workspace').hidden = false; showPage(page); notice();
   } catch (error) { if (version === selectionVersion) notice(error.message, true); }
 }
@@ -76,7 +76,7 @@ async function init() {
     $('account').textContent = session.user.name; $('logout').hidden = false;
     const guilds = await api('/api/guilds');
     for (const guild of guilds) {
-      const button = document.createElement('button'); button.className = 'server'; button.dataset.id = guild.id; button.title = guild.name; button.setAttribute('aria-label', guild.name);
+      const button = document.createElement('button'); button.className = 'server-rail-button'; button.dataset.id = guild.id; button.title = guild.name; button.setAttribute('aria-label', guild.name);
       if (guild.icon) { const img = document.createElement('img'); img.src = guild.icon; img.alt = ''; button.append(img); } else button.textContent = guild.name.slice(0, 2).toUpperCase();
       button.addEventListener('click', () => selectGuild(guild.id)); $('servers').append(button);
     }
