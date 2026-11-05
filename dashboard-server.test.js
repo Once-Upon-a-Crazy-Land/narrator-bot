@@ -17,7 +17,7 @@ test('dashboard login, permission checks, CSRF protection and settings validatio
   const landing = await request('/');
   assert.equal(landing.status, 200);
   assert.match(landing.headers.get('content-security-policy'), /img-src 'self' data:/);
-  for (const path of ['/dashboard.html', '/dashboard-shared.js', '/dashboard.css', '/narrator-dashboard.css', '/images/spinner.png', '/images/pointer.png']) {
+  for (const path of ['/dashboard.html', '/dashboard-shared.js', '/dashboard-picker.js', '/dashboard-picker.css', '/dashboard.css', '/narrator-dashboard.css', '/images/spinner.png', '/images/pointer.png']) {
     assert.equal((await request(path)).status, 200, path);
   }
   assert.equal((await (await request('/api/meta')).json()).clientId, 'app');

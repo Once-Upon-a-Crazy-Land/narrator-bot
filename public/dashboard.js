@@ -48,35 +48,12 @@ function updateOverview() {
   renderModuleStatuses();
 }
 const pickerKeys = { 'say-channels': 'sayChannels', 'admin-roles': 'adminRoles', 'dm-roles': 'dungeonMasterRoles' };
-function renderPicker(id) {
-  const picker = $('#' + id + '-picker'), storage = $('#' + id), selected = [...storage.selectedOptions];
-  picker.querySelector('.picker-placeholder').classList.toggle('hidden', selected.length > 0);
-  picker.querySelector('.picker-tags').innerHTML = selected.map(option => `<span class="picker-tag" data-value="${escapeHtml(option.value)}"><button type="button" title="Remove" aria-label="Remove ${escapeHtml(option.textContent)}">×</button>${escapeHtml(option.textContent)}</span>`).join('');
-  picker.querySelector('.picker-menu').innerHTML = [...storage.options].map(option => `<button type="button" data-value="${escapeHtml(option.value)}" class="${option.selected ? 'selected' : ''}" aria-pressed="${option.selected}"><span>${option.selected ? '✓' : ''}</span>${escapeHtml(option.textContent)}</button>`).join('') || '<div class="empty compact">No available options.</div>';
-}
-function closePicker(picker) { picker.classList.remove('open'); picker.querySelector('.picker-control').setAttribute('aria-expanded', 'false'); }
-for (const id of Object.keys(pickerKeys)) {
-  const picker = $('#' + id + '-picker');
-  picker.querySelector('.picker-control').onclick = () => {
-    const open = !picker.classList.contains('open');
-    document.querySelectorAll('.tag-picker').forEach(closePicker);
-    picker.classList.toggle('open', open);
-    picker.querySelector('.picker-control').setAttribute('aria-expanded', String(open));
-  };
-  picker.onclick = event => {
-    const tag = event.target.closest('.picker-tag button'), item = event.target.closest('.picker-menu button');
-    if (!tag && !item) return;
-    event.stopPropagation();
-    const value = tag ? tag.parentElement.dataset.value : item.dataset.value;
-    const option = [...$('#' + id).options].find(option => option.value === value);
-    option.selected = tag ? false : !option.selected;
-    renderPicker(id);
-    if (item) picker.classList.add('open');
-    scheduleSave();
-  };
-}
-document.addEventListener('click', event => { if (!event.target.closest('.tag-picker')) document.querySelectorAll('.tag-picker').forEach(closePicker); });
-document.addEventListener('keydown', event => { if (event.key === 'Escape') document.querySelectorAll('.tag-picker').forEach(closePicker); });
+const pickers = Object.fromEntries(Object.keys(pickerKeys).map(id => [id, createDashboardPicker({
+  root: $('#' + id + '-picker'),
+  storage: $('#' + id),
+  onChange: scheduleSave
+})]));
+function renderPicker(id) { pickers[id].render(); }
 function collectSettings() {
   const settings = { roleplayEnabled: $('#roleplay-enabled').checked };
   for (const [id, key] of Object.entries(pickerKeys)) settings[key] = [...$('#' + id).selectedOptions].map(option => option.value);

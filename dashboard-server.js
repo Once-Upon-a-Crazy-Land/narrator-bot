@@ -8,6 +8,8 @@ const assets = new Map([
   ['/dashboard.css', ['dashboard.css', 'text/css']],
   ['/dashboard.js', ['dashboard.js', 'text/javascript']],
   ['/dashboard-shared.js', ['dashboard-shared.js', 'text/javascript']],
+  ['/dashboard-picker.js', ['dashboard-picker.js', 'text/javascript']],
+  ['/dashboard-picker.css', ['dashboard-picker.css', 'text/css']],
   ['/narrator-dashboard.css', ['narrator-dashboard.css', 'text/css']],
   ['/images/spinner.png', ['images/spinner.png', 'image/png']],
   ['/images/pointer.png', ['images/pointer.png', 'image/png']],

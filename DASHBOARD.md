@@ -4,6 +4,22 @@ The dashboard runs with the bot on `PORT` (default 3000). Its shell, styles, ser
 
 Like All-Seeing, the dashboard signs users in before loading servers, uses an avatar rail for switching servers, exposes Overview and configuration subtabs, and saves changes automatically after 650 ms. Switching servers flushes pending saves first. The profile button opens logout confirmation. Channel and role selections use the same tag picker markup and component styles. Narrator-specific adapters connect these controls to its existing data, without importing All-Seeing's leveling, economy, moderation, or billing features.
 
+## Reusable multi-select component
+
+Use `public/dashboard-picker.js` and `public/dashboard-picker.css` for all channel and role multi-selects. Do not implement selection handlers or selection styling separately on each page.
+
+```js
+const picker = createDashboardPicker({
+  root: document.querySelector('#say-channels-picker'),
+  storage: document.querySelector('#say-channels'),
+  onChange: scheduleSave
+});
+// After populating the hidden select and setting option.selected:
+picker.render();
+```
+
+The root uses the original `.tag-picker` markup with `.picker-control`, `.picker-tags`, `.picker-placeholder`, and `.picker-menu`. Options must remain adjacent button siblings without vertical gaps. Adjacent selected options join into a single pink block: only the first row's top corners and the last row's bottom corners are rounded. A single selected option retains all four corners; an unselected option splits selected runs. This reproduces All-Seeing's `.select-popup` adjacency rules. Updates keep the menu open and retain focus and scroll position. The hidden select remains the source of truth for saving.
+
 ## Connect narrator.crazyland.art
 
 1. Set these values in the bot host's environment:

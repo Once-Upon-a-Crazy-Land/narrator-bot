@@ -1,0 +1,13 @@
+/* Same selected-run treatment as All-Seeing's .select-popup component.
+ * Outer corners stay rounded; shared edges inside a selected run are square.
+ * Keep options as adjacent button siblings, with no gap between rows.
+ */
+.dashboard-multiselect .picker-menu button.selected:has(+ button.selected) {
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.dashboard-multiselect .picker-menu button.selected + button.selected {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
