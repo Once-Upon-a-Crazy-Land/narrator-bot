@@ -1,6 +1,7 @@
 import fs from "fs";
 import { createHash } from "node:crypto";
 import http from "http";
+import { createDashboardHandler } from "./dashboard-server.js";
 import path from "path";
 import dotenv from "dotenv";
 import { createAiHelper } from "./ai-helper.js";
@@ -13156,18 +13157,42 @@ process.on("uncaughtException", (error) => {
   console.error("Uncaught exception:", error);
 });
 
-// Minimal HTTP server so Railway health checks succeed and the container
-// is never considered idle/unhealthy when the bot is running fine.
-const _healthPort = parseInt(process.env.PORT || "3000", 10);
-http
-  .createServer((_req, res) => {
-    const status = client.isReady() ? "ready" : "starting";
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    res.end(`OK:${status}`);
-  })
-  .listen(_healthPort, () => {
-    console.log(`Health-check server listening on port ${_healthPort}.`);
-  });
+// Serve the dashboard in the same process as the bot so settings stay in sync.
+const dashboardHandler = createDashboardHandler({
+  client,
+  async getGuildData(guild) {
+    const channels = await guild.channels.fetch();
+    const roles = await guild.roles.fetch();
+    return {
+      id: guild.id, name: guild.name, memberCount: guild.memberCount,
+      characters: getCharactersForGuild(guild.id).map(character => ({
+        id: character.id, name: String(character.name || "Unnamed character"),
+        assigned: Boolean(getAssignedUserId(guild.id, character.id))
+      })),
+      channels: [...channels.values()].filter(channel => channel && [0, 5].includes(channel.type))
+        .sort((a, b) => a.rawPosition - b.rawPosition).map(channel => ({ id: channel.id, name: channel.name })),
+      roles: [...roles.values()].filter(role => role.id !== guild.id && !role.managed)
+        .sort((a, b) => b.position - a.position).map(role => ({ id: role.id, name: role.name })),
+      settings: {
+        roleplayEnabled: isRoleplayEnabledForGuild(guild.id), sayChannels: getSayAllowedChannelIds(guild.id),
+        adminRoles: getAdminRoleIds(guild.id), dungeonMasterRoles: getDungeonMasterRoleIds(guild.id)
+      }
+    };
+  },
+  updateGuildSettings(guildId, settings) {
+    const key = getScopeId(guildId);
+    adminRoles[key] = [...new Set(settings.adminRoles)];
+    dungeonMasterRoles[key] = [...new Set(settings.dungeonMasterRoles)];
+    saveAdminRoles();
+    saveDungeonMasterRoles();
+    setSayAllowedChannelIds(guildId, settings.sayChannels);
+    setRoleplayEnabledForGuild(guildId, settings.roleplayEnabled);
+  }
+});
+const dashboardPort = parseInt(process.env.PORT || "3000", 10);
+http.createServer(dashboardHandler).listen(dashboardPort, () => {
+  console.log(`Narrator dashboard listening on port ${dashboardPort}.`);
+});
 
 await initEconomyDatabase();
 

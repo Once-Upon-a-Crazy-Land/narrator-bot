@@ -4,6 +4,8 @@
     "watchPatterns": [
       "bot.js",
       "ai-helper.js",
+      "dashboard-server.js",
+      "public/**",
       "package.json",
       "package-lock.json",
       "Dockerfile",

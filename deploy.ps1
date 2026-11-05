@@ -28,6 +28,7 @@ $FilesToUpload = @(
     "bot.js",
     "ai-helper.js",
     "image-loader.js",
+    "dashboard-server.js",
     "package.json",
     "docker-compose.yml",
     "Dockerfile",
@@ -56,6 +57,7 @@ Write-Host "[2/4] Creating remote directory..." -ForegroundColor Cyan
 ssh -i $KeyPath ubuntu@$ServerIP "mkdir -p ~/discord-bot/config ~/discord-bot/data"
 
 Write-Host "[3/4] Uploading files..." -ForegroundColor Cyan
+scp -r -i $KeyPath public "ubuntu@${ServerIP}:~/discord-bot/"
 foreach ($file in $FilesToUpload) {
     Write-Host "   Uploading $file..."
     $RemotePath = $file -replace '\\', '/'

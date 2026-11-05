@@ -7,6 +7,9 @@ services:
     environment:
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       CLIENT_ID: ${CLIENT_ID}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+      DASHBOARD_URL: ${DASHBOARD_URL:-https://narrator.crazyland.art}
+      PORT: 3000
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}
@@ -17,4 +20,6 @@ services:
       DISCORD_PREMIUM_SLOT_SKUS: ${DISCORD_PREMIUM_SLOT_SKUS:-}
     volumes:
       - ./data:/app/data
+    ports:
+      - "127.0.0.1:3000:3000"
     restart: unless-stopped
