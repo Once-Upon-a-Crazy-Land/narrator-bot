@@ -15,7 +15,14 @@ function showPage(next) {
   $('title').textContent = ({ overview: 'Community overview', characters: 'Every character has a story.', roleplay: 'Set the scene.', permissions: 'Your storytellers, trusted.' })[page];
   $('save-bar').hidden = !data || !['roleplay', 'permissions'].includes(page);
 }
-document.querySelectorAll('[data-page]').forEach(button => button.addEventListener('click', () => { if (data) showPage(button.dataset.page); }));
+function navigationReady(ready) {
+  document.querySelectorAll('[data-page]').forEach(button => {
+    button.disabled = !ready;
+    button.title = ready ? '' : 'Sign in and select a server to use this section.';
+  });
+}
+navigationReady(false);
+document.querySelectorAll('[data-page]').forEach(button => button.addEventListener('click', () => showPage(button.dataset.page)));
 function choices(id, items, selected, prefix = '') {
   $(id).replaceChildren();
   for (const item of items) {
@@ -41,6 +48,7 @@ async function selectGuild(id) {
   if (dirty && !confirm('Discard unsaved changes and switch servers?')) return;
   const version = ++selectionVersion;
   notice('Loading your server...'); $('workspace').hidden = true; data = null;
+  navigationReady(false);
   $('save-bar').hidden = true;
   try {
     const next = await api(`/api/guilds/${id}`);
@@ -54,7 +62,7 @@ async function selectGuild(id) {
     choices('channels', next.channels, next.settings.sayChannels, '# '); choices('admin-roles', next.roles, next.settings.adminRoles); choices('dm-roles', next.roles, next.settings.dungeonMasterRoles);
     $('search').value = ''; renderCharacters();
     document.querySelectorAll('.server-rail-button').forEach(el => el.classList.toggle('active', el.dataset.id === id));
-    $('workspace').hidden = false; showPage(page); notice();
+    $('workspace').hidden = false; navigationReady(true); showPage(page); notice();
   } catch (error) { if (version === selectionVersion) notice(error.message, true); }
 }
 $('search').addEventListener('input', renderCharacters);
@@ -72,7 +80,17 @@ $('logout').addEventListener('click', async () => { try { await api('/auth/logou
 async function init() {
   try {
     session = await api('/api/session');
-    if (!session.user) { $('welcome').hidden = false; notice(session.configured ? 'Sign in to manage your community.' : 'Discord login will be available once the dashboard is configured.'); if (!session.configured) $('login').hidden = true; return; }
+    if (!session.user) {
+      $('welcome').hidden = false;
+      $('title').textContent = 'Sign in to your dashboard';
+      $('server-name').textContent = 'Sign in to choose a server';
+      notice(session.configured ? 'Sign in with Discord, then select a server to unlock the dashboard.' : 'Discord sign-in needs to be configured on the bot host.');
+      if (!session.configured) {
+        $('login').hidden = true;
+        $('setup-help').hidden = false;
+      }
+      return;
+    }
     $('account').textContent = session.user.name; $('logout').hidden = false;
     const guilds = await api('/api/guilds');
     for (const guild of guilds) {
