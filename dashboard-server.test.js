@@ -15,10 +15,14 @@ test('dashboard login, permission checks, CSRF protection and settings validatio
   server.on('request', createDashboardHandler({ client, env: { CLIENT_ID: 'app', DISCORD_CLIENT_SECRET: 'secret', DASHBOARD_URL: origin }, getGuildData: async () => ({ name: 'Test' }), updateGuildSettings: () => { writes++; }, fetcher: async url => ({ ok: true, json: async () => url.endsWith('/oauth2/token') ? { access_token: 'token', expires_in: 3600 } : url.endsWith('/guilds') ? [{ id: guildId, permissions: '32' }] : { id: 'user', username: 'Tester' } }) }));
   const request = (path, options = {}) => fetch(origin + path, { redirect: 'manual', ...options });
   assert.equal((await request('/')).status, 200);
+  for (const path of ['/dashboard.html', '/dashboard-shared.js', '/dashboard.css', '/narrator-dashboard.css', '/images/spinner.png', '/images/pointer.png']) {
+    assert.equal((await request(path)).status, 200, path);
+  }
+  assert.equal((await (await request('/api/meta')).json()).clientId, 'app');
   assert.equal((await request('/health')).status, 200);
   assert.equal((await request('/.env')).status, 401);
   assert.equal((await request('/api/guilds')).status, 401);
-  const login = await request('/auth/login');
+  const login = await request('/auth/discord');
   let cookie = login.headers.get('set-cookie').split(';')[0];
   const state = new URL(login.headers.get('location')).searchParams.get('state');
   assert.equal((await request('/auth/callback?state=bad&code=x', { headers: { cookie } })).status, 400);
@@ -26,6 +30,11 @@ test('dashboard login, permission checks, CSRF protection and settings validatio
   assert.equal(callback.status, 302); cookie = callback.headers.get('set-cookie').split(';')[0];
   const session = await (await request('/api/session', { headers: { cookie } })).json();
   assert.equal(session.user.name, 'Tester');
+  const me = await (await request('/api/me', { headers: { cookie } })).json();
+  assert.equal(me.username, 'Tester');
+  assert.equal(me.csrf, session.csrf);
+  const guildList = await (await request('/api/guilds', { headers: { cookie } })).json();
+  assert.equal(guildList[0].installed, true);
   assert.equal((await request(`/api/guilds/${guildId}`, { headers: { cookie } })).status, 200);
   const body = JSON.stringify({ roleplayEnabled: true, sayChannels: ['channel'], adminRoles: [], dungeonMasterRoles: [] });
   assert.equal((await request(`/api/guilds/${guildId}`, { method: 'PUT', headers: { cookie }, body })).status, 403);

@@ -1,0 +1,11 @@
+/* Shared component styles are copied unchanged from All-Seeing. */
+.setup-row{display:flex;justify-content:space-between;gap:20px;padding:18px 0;border-top:1px solid var(--discord-border);font-size:13px;color:var(--discord-muted)}
+#characters .leaderboard-header,#character-list>div:not(.empty){grid-template-columns:55px minmax(0,1fr) 100px}
+#character-list .leaderboard-user{font-size:13px}
+#character-list strong{font-size:12px;font-weight:400;color:var(--discord-muted)}
+.panel>.card{border:0;border-radius:4px}
+.tag-picker .picker-control{min-height:54px}
+.tag-picker:focus-within{outline-offset:2px}
+#roleplay>.card .cardhead .switch{display:block}
+#roleplay-enabled:focus-visible+span{outline:2px solid var(--discord-accent);outline-offset:3px}
+@media(max-width:750px){#characters .leaderboard-header{grid-template-columns:1fr}#characters .leaderboard-header>b{display:none}}

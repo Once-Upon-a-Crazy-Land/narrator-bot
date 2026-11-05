@@ -1,6 +1,8 @@
 # Narrator dashboard
 
-The dashboard runs with the bot on `PORT` (default 3000). It reuses the All-Seeing site's shared stylesheets for the same dark surfaces, pink accents, fonts, navigation, and cards. The root serves the landing page; `/dashboard.html` serves the authenticated dashboard. It provides a live server overview, searchable character list, roleplay channel configuration, and admin/dungeon master role settings. Character creation and editing remain available in Discord.
+The dashboard runs with the bot on `PORT` (default 3000). Its shell, styles, server rail, profile rendering, and save notifications come directly from the All-Seeing dashboard. The root serves the landing page; `/dashboard.html` serves the authenticated dashboard. It provides a live server overview, searchable character list, roleplay channel configuration, and admin/dungeon master role settings. Character creation and editing remain available in Discord.
+
+Like All-Seeing, the dashboard signs users in before loading servers, uses an avatar rail for switching servers, exposes Overview and configuration subtabs, and saves changes automatically after 650 ms. Switching servers flushes pending saves first. The profile button opens logout confirmation. Channel and role selections use the same tag picker markup and component styles. Narrator-specific adapters connect these controls to its existing data, without importing All-Seeing's leveling, economy, moderation, or billing features.
 
 ## Connect narrator.crazyland.art
 

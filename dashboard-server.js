@@ -5,9 +5,12 @@ const assets = new Map([
   ['/', ['index.html', 'text/html']],
   ['/dashboard.html', ['dashboard.html', 'text/html']],
   ['/styles.css', ['styles.css', 'text/css']],
-  ['/all-seeing-dashboard.css', ['all-seeing-dashboard.css', 'text/css']],
   ['/dashboard.css', ['dashboard.css', 'text/css']],
   ['/dashboard.js', ['dashboard.js', 'text/javascript']],
+  ['/dashboard-shared.js', ['dashboard-shared.js', 'text/javascript']],
+  ['/narrator-dashboard.css', ['narrator-dashboard.css', 'text/css']],
+  ['/images/spinner.png', ['images/spinner.png', 'image/png']],
+  ['/images/pointer.png', ['images/pointer.png', 'image/png']],
   ['/fonts/Lato-Regular.ttf', ['fonts/Lato-Regular.ttf', 'font/ttf']],
   ['/fonts/Lato-Bold.ttf', ['fonts/Lato-Bold.ttf', 'font/ttf']]
 ]);
@@ -42,7 +45,7 @@ export function createDashboardHandler({ client, getGuildData, updateGuildSettin
         const contents = await readFile(new URL(`./public/${file}`, import.meta.url));
         res.writeHead(200, { 'Content-Type': type }); return res.end(contents);
       }
-      if (req.method === 'GET' && url.pathname === '/auth/login') {
+      if (req.method === 'GET' && ['/auth/login', '/auth/discord'].includes(url.pathname)) {
         if (!configured) return send(503, { error: 'Discord login is not configured yet.' });
         if (sessions.size >= 10000) return send(503, { error: 'Please try again later.' });
         const key = randomBytes(32).toString('hex');
@@ -66,12 +69,14 @@ export function createDashboardHandler({ client, getGuildData, updateGuildSettin
         return redirect('/dashboard.html');
       }
       if (url.pathname === '/api/session' && req.method === 'GET') return send(200, { configured, user: session?.user ? { id: session.user.id, name: session.user.global_name || session.user.username } : null, csrf: session?.csrf });
+      if (url.pathname === '/api/meta' && req.method === 'GET') return send(200, { clientId: env.CLIENT_ID, configured });
       if (!session?.user) return send(401, { error: 'Sign in with Discord to continue.' });
+      if (url.pathname === '/api/me' && req.method === 'GET') return send(200, { id: session.user.id, username: session.user.username, avatar: session.user.avatar || null, csrf: session.csrf });
       if (req.method !== 'GET' && (req.headers.origin !== origin || req.headers['x-csrf-token'] !== session.csrf)) return send(403, { error: 'Please reload the dashboard and try again.' });
       if (url.pathname === '/auth/logout' && req.method === 'POST') { sessions.delete(id); res.setHeader('Set-Cookie', cookie('', 0)); return send(200, { ok: true }); }
       const guilds = await discord('/users/@me/guilds', session.token);
       const manageable = guilds.filter(g => (g.owner || (BigInt(g.permissions) & 40n) !== 0n) && client.guilds.cache.has(g.id));
-      if (url.pathname === '/api/guilds' && req.method === 'GET') return send(200, manageable.map(g => ({ id: g.id, name: g.name, icon: g.icon ? `https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png` : null })));
+      if (url.pathname === '/api/guilds' && req.method === 'GET') return send(200, manageable.map(g => ({ id: g.id, name: g.name, icon: g.icon || null, installed: true })));
       const match = /^\/api\/guilds\/(\d{17,22})$/.exec(url.pathname);
       if (!match) return send(404, { error: 'Page not found.' });
       if (!manageable.some(g => g.id === match[1])) return send(403, { error: 'Manage Server permission is required.' });

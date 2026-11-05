@@ -1,104 +1,169 @@
-const $ = id => document.getElementById(id);
-let session, guildId, data, page = 'overview', dirty = false, selectionVersion = 0;
-function notice(message = '', error = false) { $('notice').textContent = message; $('notice').classList.toggle('error', error); }
-async function api(path, options = {}) {
-  const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': session?.csrf || '', ...options.headers } });
-  const value = await response.json();
-  if (!response.ok) throw new Error(value.error || 'Something went wrong.');
-  return value;
+const $ = selector => document.querySelector(selector);
+let state = { guildId: null, data: null };
+let serverSwitchPending = false, saveTimer, toastTimer, csrf = '', revision = 0, savedRevision = 0, saveInFlight = null;
+let section = 'roleplay', roleplayTab = 'overview', characterPage = 1;
+
+async function request(url, options = {}) {
+  const response = await fetch(url, { ...options, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf, ...options.headers } });
+  if (response.status === 401) { location.href = '/auth/discord'; throw new Error('Sign in required'); }
+  if (response.status === 204) return null;
+  const json = await response.json();
+  if (!response.ok) throw new Error(json.error || 'Could not complete the request.');
+  return json;
 }
-function showPage(next) {
-  page = next;
-  document.querySelectorAll('.page').forEach(el => { el.hidden = el.id !== page; });
-  document.querySelectorAll('.tab').forEach(el => el.classList.toggle('active', el.dataset.page === page));
-  $('breadcrumb').textContent = page.toUpperCase();
-  $('title').textContent = ({ overview: 'Community overview', characters: 'Every character has a story.', roleplay: 'Set the scene.', permissions: 'Your storytellers, trusted.' })[page];
-  $('save-bar').hidden = !data || !['roleplay', 'permissions'].includes(page);
+function showSection(name) {
+  section = name;
+  document.querySelectorAll('.tab').forEach(tab => tab.classList.toggle('active', tab.dataset.section === name));
+  document.querySelectorAll('.panel').forEach(panel => panel.classList.add('hidden'));
+  $('#roleplay-tabs').classList.toggle('hidden', name !== 'roleplay' || !state.data);
+  if (!state.data) return;
+  const page = name === 'roleplay' ? roleplayTab : name;
+  $('#' + page).classList.remove('hidden');
+  const title = { overview: 'Community overview', roleplay: 'Roleplay', characters: 'Characters', permissions: 'Permissions' }[page];
+  $('#title').textContent = title;
+  $('#crumb').textContent = 'DASHBOARD / ' + name.toUpperCase() + (name === 'roleplay' ? ' / ' + page.toUpperCase() : '');
 }
-function navigationReady(ready) {
-  document.querySelectorAll('[data-page]').forEach(button => {
-    button.disabled = !ready;
-    button.title = ready ? '' : 'Sign in and select a server to use this section.';
-  });
-}
-navigationReady(false);
-document.querySelectorAll('[data-page]').forEach(button => button.addEventListener('click', () => showPage(button.dataset.page)));
-function choices(id, items, selected, prefix = '') {
-  $(id).replaceChildren();
-  for (const item of items) {
-    const label = document.createElement('label'); label.className = 'choice';
-    const input = document.createElement('input'); input.type = 'checkbox'; input.value = item.id; input.checked = selected.includes(item.id);
-    label.append(input, document.createTextNode(prefix + item.name)); $(id).append(label);
-  }
-  if (!items.length) $(id).textContent = 'No available options in this server.';
+function renderModuleStatuses() {
+  const badge = $('[data-module-status="roleplay"]');
+  badge.textContent = state.data ? (state.data.settings.roleplayEnabled ? 'Enabled' : 'Disabled') : 'Loading';
+  badge.classList.toggle('is-enabled', !!state.data?.settings.roleplayEnabled);
 }
 function renderCharacters() {
-  const query = $('search').value.toLowerCase();
-  $('character-list').replaceChildren();
-  const list = data.characters.filter(c => c.name.toLowerCase().includes(query));
-  for (const character of list) {
-    const row = document.createElement('div'); row.className = 'character';
-    const name = document.createElement('b'); name.textContent = character.name;
-    const owner = document.createElement('small'); owner.textContent = character.assigned ? 'Assigned' : 'Available';
-    row.append(name, owner); $('character-list').append(row);
+  const characters = state.data.characters.filter(character => character.name.toLowerCase().includes($('#character-search').value.toLowerCase()));
+  const pages = Math.max(1, Math.ceil(characters.length / 10));
+  characterPage = Math.min(characterPage, pages);
+  $('#character-list').innerHTML = characters.length ? characters.slice((characterPage - 1) * 10, characterPage * 10).map((character, index) => `<div><b>${(characterPage - 1) * 10 + index + 1}</b><div class="leaderboard-user">${escapeHtml(character.name)}</div><strong>${character.assigned ? 'Assigned' : 'Available'}</strong></div>`).join('') : '<div class="empty compact">No characters found.</div>';
+  $('#characters-page').textContent = `Page ${characterPage} of ${pages}`;
+  $('#characters-prev').disabled = characterPage <= 1;
+  $('#characters-next').disabled = characterPage >= pages;
+}
+function updateOverview() {
+  const data = state.data;
+  $('#member-count').textContent = data.memberCount.toLocaleString();
+  $('#character-count').textContent = data.characters.length;
+  $('#status').textContent = data.settings.roleplayEnabled ? 'Active' : 'Paused';
+  $('#channel-count').textContent = data.settings.sayChannels.length + ' selected';
+  $('#admin-count').textContent = data.settings.adminRoles.length + ' selected';
+  $('#dm-count').textContent = data.settings.dungeonMasterRoles.length + ' selected';
+  renderModuleStatuses();
+}
+const pickerKeys = { 'say-channels': 'sayChannels', 'admin-roles': 'adminRoles', 'dm-roles': 'dungeonMasterRoles' };
+function renderPicker(id) {
+  const picker = $('#' + id + '-picker'), storage = $('#' + id), selected = [...storage.selectedOptions];
+  picker.querySelector('.picker-placeholder').classList.toggle('hidden', selected.length > 0);
+  picker.querySelector('.picker-tags').innerHTML = selected.map(option => `<span class="picker-tag" data-value="${escapeHtml(option.value)}"><button type="button" title="Remove" aria-label="Remove ${escapeHtml(option.textContent)}">×</button>${escapeHtml(option.textContent)}</span>`).join('');
+  picker.querySelector('.picker-menu').innerHTML = [...storage.options].map(option => `<button type="button" data-value="${escapeHtml(option.value)}" class="${option.selected ? 'selected' : ''}" aria-pressed="${option.selected}"><span>${option.selected ? '✓' : ''}</span>${escapeHtml(option.textContent)}</button>`).join('') || '<div class="empty compact">No available options.</div>';
+}
+function closePicker(picker) { picker.classList.remove('open'); picker.querySelector('.picker-control').setAttribute('aria-expanded', 'false'); }
+for (const id of Object.keys(pickerKeys)) {
+  const picker = $('#' + id + '-picker');
+  picker.querySelector('.picker-control').onclick = () => {
+    const open = !picker.classList.contains('open');
+    document.querySelectorAll('.tag-picker').forEach(closePicker);
+    picker.classList.toggle('open', open);
+    picker.querySelector('.picker-control').setAttribute('aria-expanded', String(open));
+  };
+  picker.onclick = event => {
+    const tag = event.target.closest('.picker-tag button'), item = event.target.closest('.picker-menu button');
+    if (!tag && !item) return;
+    event.stopPropagation();
+    const value = tag ? tag.parentElement.dataset.value : item.dataset.value;
+    const option = [...$('#' + id).options].find(option => option.value === value);
+    option.selected = tag ? false : !option.selected;
+    renderPicker(id);
+    if (item) picker.classList.add('open');
+    scheduleSave();
+  };
+}
+document.addEventListener('click', event => { if (!event.target.closest('.tag-picker')) document.querySelectorAll('.tag-picker').forEach(closePicker); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') document.querySelectorAll('.tag-picker').forEach(closePicker); });
+function collectSettings() {
+  const settings = { roleplayEnabled: $('#roleplay-enabled').checked };
+  for (const [id, key] of Object.entries(pickerKeys)) settings[key] = [...$('#' + id).selectedOptions].map(option => option.value);
+  return settings;
+}
+function scheduleSave() {
+  revision++;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveTimer = null; save().catch(error => showSaveToast(error.message, true)); }, 650);
+}
+async function save() {
+  if (saveInFlight) { await saveInFlight; return save(); }
+  if (!state.data || revision === savedRevision) return;
+  const guildId = state.guildId, currentRevision = revision, settings = collectSettings();
+  showSaveToast('Saving...');
+  saveInFlight = request(`/api/guilds/${guildId}`, { method: 'PUT', body: JSON.stringify(settings) });
+  try {
+    await saveInFlight;
+    savedRevision = currentRevision;
+    if (state.guildId === guildId) { state.data.settings = settings; updateOverview(); }
+    showSaveToast('All changes saved');
+  } finally { saveInFlight = null; }
+  if (revision !== savedRevision) await save();
+}
+async function flushSave() {
+  clearTimeout(saveTimer); saveTimer = null;
+  await save();
+}
+async function loadGuild(id) {
+  $('#loading').classList.remove('hidden');
+  $('#loading').replaceChildren();
+  const indicator = document.createElement('div'); indicator.className = 'loading-indicator'; indicator.setAttribute('role', 'status');
+  indicator.innerHTML = '<img class="loading-spinner" src="/images/spinner.png" alt="" width="96" height="96"><span>Loading...</span>';
+  $('#loading').append(indicator);
+  document.querySelectorAll('.panel').forEach(panel => panel.classList.add('hidden'));
+  $('#roleplay-tabs').classList.add('hidden');
+  const data = await request(`/api/guilds/${id}`);
+  state = { guildId: id, data }; revision = savedRevision = 0; syncServerRail();
+  $('#roleplay-enabled').checked = data.settings.roleplayEnabled;
+  for (const [pickerId, key] of Object.entries(pickerKeys)) {
+    const channels = pickerId === 'say-channels';
+    $('#' + pickerId).innerHTML = (channels ? data.channels : data.roles).map(item => `<option value="${escapeHtml(item.id)}">${channels ? '# ' : '@ '}${escapeHtml(item.name)}</option>`).join('');
+    for (const option of $('#' + pickerId).options) option.selected = data.settings[key].includes(option.value);
+    renderPicker(pickerId);
   }
-  if (!list.length) $('character-list').textContent = query ? 'No characters match your search.' : 'No characters yet. Create your first character in Discord.';
+  updateOverview(); $('#character-search').value = ''; characterPage = 1; renderCharacters();
+  $('#loading').classList.add('hidden'); showSection(section);
+  const url = new URL(location.href); url.searchParams.set('guild', id); history.replaceState({}, '', url);
 }
-async function selectGuild(id) {
-  if (dirty && !confirm('Discard unsaved changes and switch servers?')) return;
-  const version = ++selectionVersion;
-  notice('Loading your server...'); $('workspace').hidden = true; data = null;
-  navigationReady(false);
-  $('save-bar').hidden = true;
-  try {
-    const next = await api(`/api/guilds/${id}`);
-    if (version !== selectionVersion) return;
-    data = next; guildId = id; dirty = false;
-    $('dirty').textContent = 'Changes apply directly to your bot.';
-    $('server-name').textContent = next.name; $('members').textContent = next.memberCount.toLocaleString();
-    $('character-count').textContent = next.characters.length; $('rp-status').textContent = next.settings.roleplayEnabled ? 'Enabled' : 'Disabled';
-    $('channel-count').textContent = `${next.settings.sayChannels.length} selected`; $('admin-count').textContent = `${next.settings.adminRoles.length} selected`; $('dm-count').textContent = `${next.settings.dungeonMasterRoles.length} selected`;
-    $('enabled').checked = next.settings.roleplayEnabled;
-    choices('channels', next.channels, next.settings.sayChannels, '# '); choices('admin-roles', next.roles, next.settings.adminRoles); choices('dm-roles', next.roles, next.settings.dungeonMasterRoles);
-    $('search').value = ''; renderCharacters();
-    document.querySelectorAll('.server-rail-button').forEach(el => el.classList.toggle('active', el.dataset.id === id));
-    $('workspace').hidden = false; navigationReady(true); showPage(page); notice();
-  } catch (error) { if (version === selectionVersion) notice(error.message, true); }
+async function switchServer(guildId) {
+  if (serverSwitchPending || state.guildId === guildId) return;
+  serverSwitchPending = true;
+  try { await flushSave(); await loadGuild(guildId); }
+  catch (error) { showSaveToast(error.message, true); if (state.data) { $('#loading').classList.add('hidden'); showSection(section); } else $('#loading').textContent = error.message; }
+  finally { serverSwitchPending = false; }
 }
-$('search').addEventListener('input', renderCharacters);
-$('settings').addEventListener('change', () => { dirty = true; $('dirty').textContent = 'You have unsaved changes.'; });
-window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
-$('settings').addEventListener('submit', async event => {
-  event.preventDefault(); $('save').disabled = true;
-  const selected = id => [...$(id).querySelectorAll('input:checked')].map(el => el.value);
-  try {
-    await api(`/api/guilds/${guildId}`, { method: 'PUT', body: JSON.stringify({ roleplayEnabled: $('enabled').checked, sayChannels: selected('channels'), adminRoles: selected('admin-roles'), dungeonMasterRoles: selected('dm-roles') }) });
-    dirty = false; await selectGuild(guildId); $('dirty').textContent = 'All changes saved.'; notice('Settings saved. Your bot is up to date.');
-  } catch (error) { notice(error.message, true); } finally { $('save').disabled = false; }
+async function confirmLogout() {
+  if (!confirm('Log out of the dashboard?')) return;
+  try { await flushSave(); await request('/auth/logout', { method: 'POST' }); location.href = '/'; }
+  catch (error) { showSaveToast(error.message, true); }
+}
+$('#server-rail-profile').onclick = confirmLogout;
+$('#roleplay-enabled').onchange = scheduleSave;
+$('#character-search').oninput = () => { characterPage = 1; renderCharacters(); };
+$('#characters-prev').onclick = () => { characterPage--; renderCharacters(); };
+$('#characters-next').onclick = () => { characterPage++; renderCharacters(); };
+document.querySelectorAll('.tab').forEach(tab => tab.onclick = () => showSection(tab.dataset.section));
+document.querySelectorAll('[data-tab]').forEach(tab => tab.onclick = () => {
+  roleplayTab = tab.dataset.tab;
+  document.querySelectorAll('[data-tab]').forEach(button => button.classList.toggle('active', button === tab));
+  showSection('roleplay');
 });
-$('logout').addEventListener('click', async () => { try { await api('/auth/logout', { method: 'POST' }); dirty = false; location.reload(); } catch (error) { notice(error.message, true); } });
-async function init() {
+window.addEventListener('beforeunload', event => { if (revision !== savedRevision) { event.preventDefault(); event.returnValue = ''; } });
+async function boot() {
   try {
-    session = await api('/api/session');
-    if (!session.user) {
-      $('welcome').hidden = false;
-      $('title').textContent = 'Sign in to your dashboard';
-      $('server-name').textContent = 'Sign in to choose a server';
-      notice(session.configured ? 'Sign in with Discord, then select a server to unlock the dashboard.' : 'Discord sign-in needs to be configured on the bot host.');
-      if (!session.configured) {
-        $('login').hidden = true;
-        $('setup-help').hidden = false;
-      }
+    const meta = await request('/api/meta');
+    if (!meta.configured) { $('#loading').textContent = 'Discord sign-in is not configured. Set the Narrator OAuth2 client secret on the bot host.'; return; }
+    const [me, guilds] = await Promise.all([request('/api/me'), request('/api/guilds')]);
+    csrf = me.csrf; renderRailProfile(me);
+    const installed = guilds.filter(guild => guild.installed);
+    renderServerRail(installed, meta.clientId);
+    if (!installed.length) {
+      $('#loading').innerHTML = `No manageable server has this bot installed yet.<br><a class="button" href="${escapeHtml($('#server-rail-invite').href)}">Add it to a server</a>`;
       return;
     }
-    $('account').textContent = session.user.name; $('logout').hidden = false;
-    const guilds = await api('/api/guilds');
-    for (const guild of guilds) {
-      const button = document.createElement('button'); button.className = 'server-rail-button'; button.dataset.id = guild.id; button.title = guild.name; button.setAttribute('aria-label', guild.name);
-      if (guild.icon) { const img = document.createElement('img'); img.src = guild.icon; img.alt = ''; button.append(img); } else button.textContent = guild.name.slice(0, 2).toUpperCase();
-      button.addEventListener('click', () => selectGuild(guild.id)); $('servers').append(button);
-    }
-    if (guilds.length) await selectGuild(guilds[0].id); else notice('No servers available. You need Manage Server permission in a server where Narrator is installed.');
-  } catch (error) { notice(error.message, true); }
+    const returnGuild = new URLSearchParams(location.search).get('guild');
+    await loadGuild(installed.some(guild => guild.id === returnGuild) ? returnGuild : installed[0].id);
+  } catch (error) { $('#loading').textContent = error.message; }
 }
-init();
+boot();
