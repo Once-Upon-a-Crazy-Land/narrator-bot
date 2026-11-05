@@ -32,7 +32,7 @@ function renderCharacters() {
   const characters = state.data.characters.filter(character => character.name.toLowerCase().includes($('#character-search').value.toLowerCase()));
   const pages = Math.max(1, Math.ceil(characters.length / 10));
   characterPage = Math.min(characterPage, pages);
-  $('#character-list').innerHTML = characters.length ? characters.slice((characterPage - 1) * 10, characterPage * 10).map((character, index) => `<div><b>${(characterPage - 1) * 10 + index + 1}</b><div class="leaderboard-user">${escapeHtml(character.name)}</div><strong>${character.assigned ? 'Assigned' : 'Available'}</strong></div>`).join('') : '<div class="empty compact">No characters found.</div>';
+  $('#character-list').innerHTML = characters.length ? characters.slice((characterPage - 1) * 10, characterPage * 10).map((character, index) => `<div><b>${(characterPage - 1) * 10 + index + 1}</b><div class="leaderboard-user">${escapeHtml(character.name)}</div><strong aria-label="${character.assigned ? 'Assigned' : 'Available'}">${character.assigned ? 'Taken' : 'Free'}</strong><small>${escapeHtml(String(character.id))}</small></div>`).join('') : '<div class="empty compact">No characters found.</div>';
   $('#characters-page').textContent = `Page ${characterPage} of ${pages}`;
   $('#characters-prev').disabled = characterPage <= 1;
   $('#characters-next').disabled = characterPage >= pages;

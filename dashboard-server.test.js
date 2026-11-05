@@ -14,7 +14,9 @@ test('dashboard login, permission checks, CSRF protection and settings validatio
   const origin = `http://127.0.0.1:${server.address().port}`;
   server.on('request', createDashboardHandler({ client, env: { CLIENT_ID: 'app', DISCORD_CLIENT_SECRET: 'secret', DASHBOARD_URL: origin }, getGuildData: async () => ({ name: 'Test' }), updateGuildSettings: () => { writes++; }, fetcher: async url => ({ ok: true, json: async () => url.endsWith('/oauth2/token') ? { access_token: 'token', expires_in: 3600 } : url.endsWith('/guilds') ? [{ id: guildId, permissions: '32' }] : { id: 'user', username: 'Tester' } }) }));
   const request = (path, options = {}) => fetch(origin + path, { redirect: 'manual', ...options });
-  assert.equal((await request('/')).status, 200);
+  const landing = await request('/');
+  assert.equal(landing.status, 200);
+  assert.match(landing.headers.get('content-security-policy'), /img-src 'self' data:/);
   for (const path of ['/dashboard.html', '/dashboard-shared.js', '/dashboard.css', '/narrator-dashboard.css', '/images/spinner.png', '/images/pointer.png']) {
     assert.equal((await request(path)).status, 200, path);
   }
