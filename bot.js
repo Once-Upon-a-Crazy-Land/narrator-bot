@@ -6069,7 +6069,9 @@ client.on("guildDelete", (guild) => {
 client.on("interactionCreate", async (interaction) => {
   const interactionLabel = interaction.isChatInputCommand?.()
     ? `/${interaction.commandName}`
-    : interaction.customId || interaction.type;
+    : interaction.isAutocomplete?.()
+      ? `autocomplete /${interaction.commandName}`
+      : interaction.customId || interaction.type;
   console.log(`Interaction received: ${interactionLabel} from ${interaction.user?.id || "unknown-user"}`);
 
   const clearAckGuard = installInteractionAckGuard(interaction);
@@ -7243,21 +7245,25 @@ client.on("interactionCreate", async (interaction) => {
             components: [{ type: 17, components: deleteComponents }],
           });
 
-          // Store character ID for button handler
-          const filter = (i) => i.user.id === interaction.user.id;
-          const collector = interaction.channel.createMessageComponentCollector({
-            filter,
-            time: 30000
-          });
+          const prompt = await interaction.fetchReply();
+          const choice = await prompt.awaitMessageComponent({
+            filter: (component) => component.isButton() &&
+              component.user.id === interaction.user.id &&
+              (component.customId === "confirm_delete" || component.customId === "cancel_delete"),
+            time: 30_000
+          }).catch(() => null);
 
-          collector.on("collect", async (i) => {
-            if (i.customId === "confirm_delete") {
+          if (choice) {
+            await choice.deferUpdate();
+            if (choice.customId === "confirm_delete") {
               // Remove character
               const index = characters.indexOf(character);
-              if (index > -1) {
-                characters.splice(index, 1);
-                writeJson(CHARACTERS_PATH, characters);
+              if (index === -1) {
+                await editComponentsV2(interaction, "Delete Character", ["This character is no longer available."], []);
+                return;
               }
+              characters.splice(index, 1);
+              writeJson(CHARACTERS_PATH, characters);
 
               // Remove assignments
               if (getAssignedUserId(interaction.guildId, characterId)) {
@@ -7309,36 +7315,32 @@ client.on("interactionCreate", async (interaction) => {
                 { type: 14, divider: true, spacing: 1 },
                 { type: 10, content: `Successfully deleted **${character.name}** (\`${characterId}\`).` }
               ];
-              await i.update({
+              await interaction.editReply({
                 flags: 32768,
                 components: [{ type: 17, components: successComponents }],
               });
-            } else if (i.customId === "cancel_delete") {
+            } else {
               const cancelComponents = [
                 { type: 10, content: "## Delete Cancelled" },
                 { type: 14, divider: true, spacing: 1 },
                 { type: 10, content: "The character deletion was cancelled." }
               ];
-              await i.update({
+              await interaction.editReply({
                 flags: 32768,
                 components: [{ type: 17, components: cancelComponents }],
               });
             }
-          });
-
-          collector.on("end", async (collected) => {
-            if (collected.size === 0) {
-              const timeoutComponents = [
-                { type: 10, content: "## Delete Confirmation Timed Out" },
-                { type: 14, divider: true, spacing: 1 },
-                { type: 10, content: "The delete confirmation timed out. Please try again." }
-              ];
-              await interaction.editReply({
-                flags: 32768,
-                components: [{ type: 17, components: timeoutComponents }],
-              });
-            }
-          });
+          } else {
+            const timeoutComponents = [
+              { type: 10, content: "## Delete Confirmation Timed Out" },
+              { type: 14, divider: true, spacing: 1 },
+              { type: 10, content: "The delete confirmation timed out. Please try again." }
+            ];
+            await interaction.editReply({
+              flags: 32768,
+              components: [{ type: 17, components: timeoutComponents }],
+            });
+          }
         }
         return;
       }
